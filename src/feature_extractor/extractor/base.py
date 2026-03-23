@@ -246,8 +246,7 @@ class BaseFeatureExtractor:
         for layer_idx in feature_plan.sorted_layers:
             layer_output = (
                 hidden_states[layer_idx + 1][sample_index].detach().cpu()
-                if layer_idx in feature_plan.output_layers
-                or layer_idx in feature_plan.ffn_output_layers
+                if layer_idx in feature_plan.output_or_ffn_layers
                 else None
             )
             output_tensor = (
@@ -609,6 +608,7 @@ class _FeaturePlan:
         )
         self.output_layers = post_ffn_layers | layer_output_layers
         self.ffn_output_layers = layer_ffn_output_layers
+        self.output_or_ffn_layers = self.output_layers | self.ffn_output_layers
 
     def validate_layer_indices(self, num_layers: int) -> None:
         if not self.all_layers:
