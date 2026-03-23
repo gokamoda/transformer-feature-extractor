@@ -15,8 +15,6 @@ from feature_extractor.configs.schema import FeatureConfig
 from feature_extractor.hooks.attention import AttentionHookManager
 from feature_extractor.hooks.base import HookManager
 from feature_extractor.hooks.mlp import MLPHookManager
-from feature_extractor.hooks.norm import NormHookManager
-from feature_extractor.hooks.residual import ResidualHookManager
 from feature_extractor.hooks.results import (
     AttentionFeatures,
     ExtractorResult,
@@ -183,20 +181,9 @@ class BaseFeatureExtractor:
             if feature_plan.sorted_mlp_layers
             else None
         )
-        residual_hooks = (
-            ResidualHookManager(self.model, architecture=self.architecture)
-            if feature_plan.sorted_layers
-            else None
-        )
-        norm_hooks = (
-            NormHookManager(self.model, architecture=self.architecture)
-            if feature_plan.sorted_layers
-            else None
-        )
-        for manager in (mlp_hooks, residual_hooks, norm_hooks):
-            if manager is not None:
-                manager.install()
-                hook_managers.append(manager)
+        if mlp_hooks is not None:
+            mlp_hooks.install()
+            hook_managers.append(mlp_hooks)
 
         self.model.eval()
         try:

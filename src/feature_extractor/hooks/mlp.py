@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 import torch
 from torch import nn
 
-from feature_extractor.hooks.base import HookManager
+from feature_extractor.hooks.base import HookManager, register_forward_capture_hook
 from feature_extractor.models.architecture import (
     MLP_IMPLEMENTATION_GATED,
     BaseModelArchitecture,
@@ -13,30 +14,30 @@ from feature_extractor.models.architecture import (
 
 _logger = logging.getLogger(__name__)
 
+ActivationFn = Callable[
+    [nn.Module, tuple[object, ...], dict[str, object], torch.Tensor | tuple | None],
+    torch.Tensor | None,
+]
+
 
 class MLPActivationCache:
-    """Caches per-layer MLP activation outputs captured by hooks.
-
-    Parameters
-    ----------
-    mlp_modules : list[nn.Module]
-        MLP modules to hook for activation capture.
-    activation_fn : callable
-        Callable that computes an activation tensor from hook inputs with signature
-        ``(module, inputs, output) -> torch.Tensor | None``.
-    """
+    """Caches per-layer MLP activation outputs captured by hooks."""
 
     def __init__(
         self,
         mlp_modules: list[nn.Module],
-        activation_fn,
+        activation_fn: ActivationFn,
+        *,
+        architecture: BaseModelArchitecture,
     ) -> None:
         self.activation_outputs: list[torch.Tensor | None] = [None] * len(mlp_modules)
         self._hooks = []
         for idx, module in enumerate(mlp_modules):
             self._hooks.append(
-                module.register_forward_hook(
-                    self._make_store_hook(self.activation_outputs, idx, activation_fn)
+                register_forward_capture_hook(
+                    module,
+                    self._make_store_hook(self.activation_outputs, idx, activation_fn),
+                    config=architecture.mlp_hook_config,
                 )
             )
 
@@ -44,10 +45,10 @@ class MLPActivationCache:
     def _make_store_hook(
         storage: list[torch.Tensor | None],
         index: int,
-        activation_fn,
-    ):
-        def activation_hook(module, inputs, output):
-            activation = activation_fn(module, inputs, output)
+        activation_fn: ActivationFn,
+    ) -> Callable[[nn.Module, tuple[object, ...], dict[str, object], object], None]:
+        def activation_hook(module, inputs, kwargs, output) -> None:
+            activation = activation_fn(module, inputs, kwargs, output)
             if activation is None:
                 storage[index] = None
                 return
@@ -82,7 +83,7 @@ class MLPHookManager(HookManager):
         self.activation_cache: MLPActivationCache | None = None
         self._warned_layer_fallback = False
         self._warned_mlp_fallback = False
-        self._warned_activation_fallback = False
+        self._logged_mlp_kwargs = False
 
     def install(self) -> None:
         mlp_modules = self._resolve_mlp_modules()
@@ -90,7 +91,9 @@ class MLPHookManager(HookManager):
             msg = "Model does not expose MLP modules for activation capture."
             raise ValueError(msg)
         self.activation_cache = MLPActivationCache(
-            mlp_modules, self._compute_activation
+            mlp_modules,
+            self._compute_activation,
+            architecture=self._architecture,
         )
 
     def reset(self) -> None:
@@ -175,25 +178,14 @@ class MLPHookManager(HookManager):
     def _compute_activation(
         self,
         module: nn.Module,
-        inputs: tuple,
+        inputs: tuple[object, ...],
+        kwargs: dict[str, object],
         output: torch.Tensor | tuple | None,
     ) -> torch.Tensor | None:
-        """Compute the activation tensor for a hooked MLP module.
-
-        Parameters
-        ----------
-        module : nn.Module
-            MLP module being hooked.
-        inputs : tuple
-            Inputs passed into the MLP module.
-        output : torch.Tensor | tuple | None
-            Output produced by the MLP module.
-
-        Returns
-        -------
-        torch.Tensor | None
-            Activation tensor when derivable, otherwise a fallback output or None.
-        """
+        """Compute the activation tensor for a hooked MLP module."""
+        if kwargs and not self._logged_mlp_kwargs:
+            _logger.debug("MLP hook received keyword arguments: %s", sorted(kwargs))
+            self._logged_mlp_kwargs = True
         if len(inputs) == 0:
             return self._fallback_activation(output)
         hidden_states = inputs[0]
@@ -211,11 +203,6 @@ class MLPHookManager(HookManager):
     def _compute_gated_activation(
         self, module: nn.Module, hidden_states: torch.Tensor
     ) -> torch.Tensor | None:
-        """Compute gated activations for MLPs with gate/up projections.
-
-        Expects ``gate_proj`` and ``up_proj`` attributes to be present on the module.
-        Returns ``act_fn(gate_proj(x)) * up_proj(x)`` when available.
-        """
         if not (hasattr(module, "gate_proj") and hasattr(module, "up_proj")):
             return None
         gate = module.gate_proj(hidden_states)
@@ -232,50 +219,40 @@ class MLPHookManager(HookManager):
     def _compute_standard_activation(
         self, module: nn.Module, hidden_states: torch.Tensor
     ) -> torch.Tensor | None:
-        """Compute standard MLP activations using the first projection.
-
-        Looks for common projection attributes (fc1, c_fc, w1, up_proj) and applies
-        the module activation function when available.
-        """
         proj = None
-        for attr_name in ("fc1", "c_fc", "w1", "up_proj"):
-            if hasattr(module, attr_name):
-                proj = getattr(module, attr_name)(hidden_states)
+        for attr in ("fc1", "c_fc", "w1", "up_proj"):
+            candidate = getattr(module, attr, None)
+            if callable(candidate):
+                proj = candidate
                 break
         if proj is None:
             return None
+        activation = proj(hidden_states)
         act_fn = getattr(module, "act_fn", None)
         if act_fn is None:
             act_fn = getattr(module, "activation_fn", None)
-        if act_fn is None:
-            act_fn = getattr(module, "act", None)
-        if act_fn is None:
-            return proj
         if callable(act_fn):
-            return act_fn(proj)
-        return None
+            return act_fn(activation)
+        return activation
 
-    def _fallback_activation(
-        self, output: torch.Tensor | tuple | None
-    ) -> torch.Tensor | None:
-        if not self._warned_activation_fallback:
-            _logger.warning(
-                "MLP activation could not be derived from module internals; "
-                "falling back to MLP output."
-            )
-            self._warned_activation_fallback = True
+    @staticmethod
+    def _fallback_activation(output: torch.Tensor | tuple | None) -> torch.Tensor | None:
         if isinstance(output, torch.Tensor):
             return output
-        if isinstance(output, tuple) and output and isinstance(output[0], torch.Tensor):
+        if isinstance(output, (tuple, list)) and output and isinstance(output[0], torch.Tensor):
             return output[0]
         return None
 
     @staticmethod
-    def _warn_architecture_fallback(target: str, field: str, fallback: str) -> None:
+    def _warn_architecture_fallback(
+        target: str,
+        field: str,
+        fallback: str,
+    ) -> None:
         _logger.warning(
-            "Model architecture config did not resolve %s via %s; falling back to %s. "
-            "Please verify your BaseModelArchitecture settings if you are using a "
-            "custom architecture.",
+            "Model architecture config did not resolve %s via %s; falling back to "
+            "%s. Please verify your BaseModelArchitecture settings if you are using "
+            "a custom architecture.",
             target,
             field,
             fallback,

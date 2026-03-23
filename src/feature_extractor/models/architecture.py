@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 MLP_IMPLEMENTATION_STANDARD = "standard"
@@ -10,6 +10,15 @@ QKV_IMPLEMENTATION_INDEPENDENT_LINEAR = "independent_linear"
 QKV_IMPLEMENTATION_CONV1D = "conv1d"
 
 ArchitectureFactory = Callable[[], "BaseModelArchitecture"]
+
+
+@dataclass(frozen=True)
+class HookRegistrationConfig:
+    """Model-specific forward-hook registration settings."""
+
+    with_kwargs: bool = False
+    input_arg_names: tuple[str, ...] = ()
+    input_kwarg_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -24,6 +33,10 @@ class BaseModelArchitecture:
         QKV_IMPLEMENTATION_INDEPENDENT_LINEAR
     )
     mlp_implementation: Literal["standard", "gated"] = MLP_IMPLEMENTATION_STANDARD
+    attention_hook_config: HookRegistrationConfig = field(
+        default_factory=HookRegistrationConfig
+    )
+    mlp_hook_config: HookRegistrationConfig = field(default_factory=HookRegistrationConfig)
 
 
 @dataclass(frozen=True)

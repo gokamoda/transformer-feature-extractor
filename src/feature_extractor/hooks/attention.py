@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
-from feature_extractor.hooks.base import HookManager
+from feature_extractor.hooks.base import HookManager, register_forward_capture_hook
 from feature_extractor.models.architecture import (
     QKV_IMPLEMENTATION_CONV1D,
     QKV_IMPLEMENTATION_INDEPENDENT_LINEAR,
@@ -94,6 +94,8 @@ class AttentionProjectionCache:
         q_projections: list[nn.Module],
         k_projections: list[nn.Module],
         v_projections: list[nn.Module],
+        *,
+        architecture: BaseModelArchitecture,
     ) -> None:
         """Register hooks for per-layer q/k/v projection outputs."""
         self.q_outputs: list[torch.Tensor | None] = [None] * len(q_projections)
@@ -102,20 +104,32 @@ class AttentionProjectionCache:
         self._hooks = []
         for idx, module in enumerate(q_projections):
             self._hooks.append(
-                module.register_forward_hook(self._make_store_hook(self.q_outputs, idx))
+                register_forward_capture_hook(
+                    module,
+                    self._make_store_hook(self.q_outputs, idx),
+                    config=architecture.attention_hook_config,
+                )
             )
         for idx, module in enumerate(k_projections):
             self._hooks.append(
-                module.register_forward_hook(self._make_store_hook(self.k_outputs, idx))
+                register_forward_capture_hook(
+                    module,
+                    self._make_store_hook(self.k_outputs, idx),
+                    config=architecture.attention_hook_config,
+                )
             )
         for idx, module in enumerate(v_projections):
             self._hooks.append(
-                module.register_forward_hook(self._make_store_hook(self.v_outputs, idx))
+                register_forward_capture_hook(
+                    module,
+                    self._make_store_hook(self.v_outputs, idx),
+                    config=architecture.attention_hook_config,
+                )
             )
 
     @staticmethod
     def _make_store_hook(storage: list[torch.Tensor | None], index: int):
-        def hook(_module, _inputs, output):
+        def hook(_module, _inputs, _kwargs, output):
             if not isinstance(output, torch.Tensor):
                 msg = (
                     "Attention projection hook expected a Tensor output "
@@ -151,16 +165,27 @@ class AttentionProjectionCache:
 class CombinedAttentionProjectionCache:
     """Caches per-layer attention projection outputs from combined qkv modules."""
 
-    def __init__(self, combined_modules: list[nn.Module]) -> None:
+    def __init__(
+        self,
+        combined_modules: list[nn.Module],
+        *,
+        architecture: BaseModelArchitecture,
+    ) -> None:
         self.q_outputs: list[torch.Tensor | None] = [None] * len(combined_modules)
         self.k_outputs: list[torch.Tensor | None] = [None] * len(combined_modules)
         self.v_outputs: list[torch.Tensor | None] = [None] * len(combined_modules)
         self._hooks = []
         for idx, module in enumerate(combined_modules):
-            self._hooks.append(module.register_forward_hook(self._make_store_hook(idx)))
+            self._hooks.append(
+                register_forward_capture_hook(
+                    module,
+                    self._make_store_hook(idx),
+                    config=architecture.attention_hook_config,
+                )
+            )
 
     def _make_store_hook(self, index: int):
-        def hook(_module, _inputs, output):
+        def hook(_module, _inputs, _kwargs, output):
             if not isinstance(output, torch.Tensor):
                 msg = (
                     "Combined attention projection hook expected a Tensor output "
@@ -205,17 +230,24 @@ ProjectionCache = AttentionProjectionCache | CombinedAttentionProjectionCache
 class AttentionOutputCache:
     """Caches per-layer attention outputs captured by hooks."""
 
-    def __init__(self, attn_modules: list[nn.Module]) -> None:
+    def __init__(
+        self,
+        attn_modules: list[nn.Module],
+        *,
+        architecture: BaseModelArchitecture,
+    ) -> None:
         self.outputs: list[torch.Tensor | None] = [None] * len(attn_modules)
         self.qk_logits: list[torch.Tensor | None] = [None] * len(attn_modules)
         self.attn_weights: list[torch.Tensor | None] = [None] * len(attn_modules)
         self._hooks = []
         for idx, module in enumerate(attn_modules):
             self._hooks.append(
-                module.register_forward_hook(
+                register_forward_capture_hook(
+                    module,
                     self._make_store_hook(
                         self.outputs, self.qk_logits, self.attn_weights, idx
-                    )
+                    ),
+                    config=architecture.attention_hook_config,
                 )
             )
 
@@ -226,7 +258,7 @@ class AttentionOutputCache:
         weights_storage: list[torch.Tensor | None],
         index: int,
     ):
-        def hook(module, _inputs, output):
+        def hook(module, _inputs, _kwargs, output):
             output_tensor = None
             if isinstance(output, torch.Tensor):
                 output_tensor = output
@@ -335,7 +367,10 @@ class AttentionHookManager(HookManager):
         if capture_attn_output:
             attn_modules = self._resolve_attention_modules()
             if attn_modules:
-                self.attn_output_cache = AttentionOutputCache(attn_modules)
+                self.attn_output_cache = AttentionOutputCache(
+                    attn_modules,
+                    architecture=self._architecture,
+                )
             else:
                 _logger.warning(
                     "Model does not expose attention modules for output capture."
@@ -459,7 +494,8 @@ class AttentionHookManager(HookManager):
             if not module_group.has_combined:
                 return False
             self.projection_cache = CombinedAttentionProjectionCache(
-                module_group.combined_modules
+                module_group.combined_modules,
+                architecture=self._architecture,
             )
         elif (
             self._architecture.qkv_implementation
@@ -471,6 +507,7 @@ class AttentionHookManager(HookManager):
                 module_group.q_modules,
                 module_group.k_modules,
                 module_group.v_modules,
+                architecture=self._architecture,
             )
         else:
             return False

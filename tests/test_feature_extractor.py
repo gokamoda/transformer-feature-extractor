@@ -786,6 +786,40 @@ def test_extract_features_casts_hook_tensors(monkeypatch):
     assert attn_output.dtype == torch.float16
 
 
+
+
+def test_register_forward_capture_hook_supports_with_kwargs() -> None:
+    from feature_extractor.hooks.base import register_forward_capture_hook
+    from feature_extractor.models.architecture import HookRegistrationConfig
+
+    class KwargModule(nn.Module):
+        def forward(self, x: torch.Tensor, *, scale: float = 1.0) -> torch.Tensor:
+            return x * scale
+
+    module = KwargModule()
+    captured: dict[str, object] = {}
+
+    def callback(_module, args, kwargs, output) -> None:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        captured["output"] = output
+
+    hook = register_forward_capture_hook(
+        module,
+        callback,
+        config=HookRegistrationConfig(with_kwargs=True, input_kwarg_names=("scale",)),
+    )
+    try:
+        input_tensor = torch.tensor([2.0])
+        output = module(input_tensor, scale=3.0)
+    finally:
+        hook.remove()
+
+    assert len(captured["args"]) == 1
+    assert torch.equal(captured["args"][0], input_tensor)
+    assert captured["kwargs"] == {"scale": 3.0}
+    assert torch.equal(captured["output"], output)
+
 def test_extract_features_with_conv1d_qkv(monkeypatch):
     model = DummyGPT2Model(hidden_size=4, num_heads=2)
     tokenizer = DummyTokenizer()
