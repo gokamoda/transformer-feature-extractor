@@ -702,6 +702,7 @@ def test_extract_features_with_layer_attn_output(monkeypatch):
         results[0].layer_features[0].attn_output, model_output.hidden_states[1][0]
     )
 
+
 def test_extract_features_casts_layer_output(monkeypatch):
     model = DummyModel(hidden_size=4, num_layers=1)
     tokenizer = DummyTokenizer()
