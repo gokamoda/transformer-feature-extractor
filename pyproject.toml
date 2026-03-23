@@ -20,6 +20,7 @@ dependencies = [
     "matplotlib>=3.9.0",
     "safetensors>=0.4.0",
     "omegaconf>=2.3.0",
+    
 ]
 
 
@@ -46,7 +47,7 @@ conflicts = [
 
 [project.optional-dependencies]
 cpu = ["torch==2.7.0"]
-gpu = ["torch==2.7.0"]
+gpu = ["torch==2.7.0", "accelerate>=1.13.0"]
 
 [tool.uv.sources]
 torch = [

@@ -5,6 +5,7 @@ import torch
 from torch import nn
 from torch.utils.hooks import RemovableHandle
 
+from feature_extractor.models.architecture import BaseModelArchitecture
 from utils.logger import init_logging
 
 logger = init_logging(__name__)
@@ -193,3 +194,54 @@ class Hook:
         finally:
             for hook in hooks:
                 hook.remove()
+
+
+class HookManager:
+    """Base class for managing multiple hooks for a model component."""
+
+    def __init__(
+        self,
+        model: nn.Module,
+        architecture: BaseModelArchitecture | None = None,
+    ) -> None:
+        """Initialize the hook manager.
+
+        Parameters
+        ----------
+        model : nn.Module
+            Model instance that owns the hooked modules.
+        architecture : BaseModelArchitecture | None
+            Optional architecture metadata; when None, defaults are used.
+        """
+        self._model = model
+        self._architecture = architecture or BaseModelArchitecture()
+        self._hooks: list[Hook] = []
+
+    def install(self) -> None:
+        """Install hooks (no-op by default).
+
+        Subclasses should override this to register their specific hooks.
+        """
+
+    def reset(self) -> None:
+        """Reset any cached hook state."""
+        for hook in self._hooks:
+            hook.result = None
+
+    def remove(self) -> None:
+        """Remove registered hooks."""
+        for hook in self._hooks:
+            hook.remove()
+        self._hooks.clear()
+
+    def validate_layer_count(self, actual_layer_count: int) -> None:
+        """Validate hook count matches expected layers (no-op by default).
+
+        Parameters
+        ----------
+        actual_layer_count : int
+            Actual number of model layers to validate against.
+
+        Subclasses should override this method when they install per-layer
+        hooks and want to assert the hook count matches the model layers.
+        """

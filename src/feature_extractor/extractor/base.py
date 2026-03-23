@@ -1,7 +1,107 @@
-from feature_extractor.configs.schema import FeatureConfig
-from feature_extractor.models.load import load_causal_model, load_tokenizer
-from transformers import PreTrainedModel, PreTrainedTokenizer
+from __future__ import annotations
+
+import logging
+import re
+import warnings
+from contextlib import contextmanager
+from collections.abc import Sequence
+from typing import Any, Generator
+
+import torch
 from torch.utils.data import DataLoader
+from transformers import PreTrainedModel, PreTrainedTokenizer
+
+from feature_extractor.configs.schema import FeatureConfig
+from feature_extractor.hooks.attention import AttentionHookManager
+from feature_extractor.hooks.base import HookManager
+from feature_extractor.hooks.mlp import MLPHookManager
+from feature_extractor.hooks.norm import NormHookManager
+from feature_extractor.hooks.residual import ResidualHookManager
+from feature_extractor.hooks.results import (
+    AttentionFeatures,
+    ExtractorResult,
+    LayerFeatures,
+    MLPFeatures,
+)
+from feature_extractor.models.architecture import get_model_architecture
+from feature_extractor.models.load import load_causal_model, load_tokenizer
+
+_RESIDUAL_FEATURE_RE = re.compile(r"residual\.layer_(\d+)\.(pre_attn|post_ffn)")
+_LAYER_FEATURE_RE = re.compile(r"layer\.layer_(\d+)\.(attn_output|ffn_output|output)")
+_ATTN_FEATURE_RE = re.compile(r"attn\.layer_(\d+)\.(query|key|value|qk_logits|weights)")
+_MLP_FEATURE_RE = re.compile(r"mlp\.layer_(\d+)\.activation")
+_MAX_TENSOR_NESTING_DEPTH = 3
+_SDPA_OUTPUT_ATTENTION_ERROR_RE = re.compile(
+    r"(sdpa attention.*output_attentions|output_attentions.*sdpa attention)",
+    re.IGNORECASE,
+)
+_logger = logging.getLogger(__name__)
+
+
+def _is_indexable_sequence(value: object) -> bool:
+    return isinstance(value, Sequence) and not isinstance(value, (str, bytes))
+
+
+def _normalize_attentions(
+    attentions: object, *, needs_attentions: bool | None = None
+) -> tuple[object | None, bool]:
+    """Normalize model attention outputs for downstream feature extraction.
+
+    Parameters
+    ----------
+    attentions : object
+        Raw attention output returned by the model.
+    needs_attentions : bool | None
+        Unused in the current implementation; retained for backwards-compatible
+        signature support. This parameter may be removed in a future release.
+
+    Returns
+    -------
+    tuple
+        (normalized attentions or None, is_sequence flag). Returns None when the
+        model provides no attentions, an empty sequence, or an unsupported type.
+    """
+    if needs_attentions is not None:
+        warnings.warn(
+            "needs_attentions is deprecated and will be removed in a future release.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+    is_sequence = False
+    if attentions is not None:
+        if isinstance(attentions, torch.Tensor):
+            if attentions.dim() == 5:
+                attentions = tuple(attentions[i] for i in range(attentions.shape[0]))
+                is_sequence = True
+            elif attentions.dim() == 4:
+                attentions = (attentions,)
+                is_sequence = True
+            else:
+                _logger.warning(
+                    "Model returned attention weights tensor with unsupported "
+                    "shape %s; returning None for attention weight features.",
+                    tuple(attentions.shape),
+                )
+                attentions = None
+        elif _is_indexable_sequence(attentions):
+            if len(attentions) == 0:
+                attentions = None
+            else:
+                is_sequence = True
+        else:
+            _logger.warning(
+                "Model returned attention weights in unsupported format "
+                f"{type(attentions)}; returning None for attention weight "
+                "features."
+            )
+            attentions = None
+    return attentions, is_sequence
+
+
+def _is_sdpa_output_attentions_error(exc: BaseException) -> bool:
+    if not isinstance(exc, (ValueError, RuntimeError)):
+        return False
+    return _SDPA_OUTPUT_ATTENTION_ERROR_RE.search(str(exc)) is not None
 
 
 class BaseFeatureExtractor:
@@ -13,16 +113,646 @@ class BaseFeatureExtractor:
         self,
         model_name_or_path: str,
         feature_cfg: FeatureConfig,
+        hook_dtype: torch.dtype | None = None,
     ) -> None:
         self.model = load_causal_model(model_name_or_path)
         self.tokenizer = load_tokenizer(model_name_or_path)
-        self.device = self.model.device
+        self.device = self._resolve_device()
         self.feature_cfg = feature_cfg
+        self.architecture = get_model_architecture(self.model.__class__.__name__)
+        self.hook_dtype = hook_dtype
 
+    def register_hooks(self):
+        # For this basic implementation, we don't need to register any hooks
+        pass
 
+    @contextmanager
+    def _maybe_use_eager_attention(self, output_attentions: bool):
+        if not output_attentions:
+            yield False
+            return
+        config = getattr(self.model, "config", None)
+        if config is None:
+            yield False
+            return
+        saved_attn_attrs: dict[str, Any] = {}
+        # Transformers may use either the public or private attention impl field.
+        for attr in ("attn_implementation", "_attn_implementation"):
+            if not hasattr(config, attr):
+                continue
+            value = getattr(config, attr)
+            if not isinstance(value, str) or value != "sdpa":
+                continue
+            saved_attn_attrs[attr] = value
+            setattr(config, attr, "eager")
+        if not saved_attn_attrs:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            for attr, value in saved_attn_attrs.items():
+                setattr(config, attr, value)
+
+    @torch.no_grad()
     def extract_features(
         self,
         data_loader: DataLoader,
-    ):
-        
-        
+    ) -> Generator[ExtractorResult, None, None]:
+        feature_plan = self._parse_feature_names()
+        expected_num_layers: int | None = None
+        attention_hooks: AttentionHookManager | None = None
+        hook_managers: list[HookManager] = []
+        if feature_plan.needs_attention_hooks:
+            attention_hooks = AttentionHookManager(
+                self.model, architecture=self.architecture
+            )
+            attention_hooks.install(
+                required=feature_plan.needs_qkv,
+                capture_attn_output=bool(
+                    feature_plan.layer_attn_output_layers
+                    or feature_plan.attn_qk_logits_layers
+                    or feature_plan.attn_weights_layers
+                ),
+            )
+            if (
+                attention_hooks.projection_cache is not None
+                or attention_hooks.attn_output_cache is not None
+            ):
+                hook_managers.append(attention_hooks)
+            else:
+                attention_hooks = None
+        mlp_hooks = (
+            MLPHookManager(self.model, architecture=self.architecture)
+            if feature_plan.sorted_mlp_layers
+            else None
+        )
+        residual_hooks = (
+            ResidualHookManager(self.model, architecture=self.architecture)
+            if feature_plan.sorted_layers
+            else None
+        )
+        norm_hooks = (
+            NormHookManager(self.model, architecture=self.architecture)
+            if feature_plan.sorted_layers
+            else None
+        )
+        for manager in (mlp_hooks, residual_hooks, norm_hooks):
+            if manager is not None:
+                manager.install()
+                hook_managers.append(manager)
+
+        self.model.eval()
+        try:
+            for batch in data_loader:
+                for manager in hook_managers:
+                    manager.reset()
+                inputs = self._prepare_batch(batch)
+                input_keys = sorted(inputs.keys())
+                model_inputs = {
+                    key: value
+                    for key, value in inputs.items()
+                    if self._is_tensor_input(value, key=key)
+                }
+                if "input_ids" not in model_inputs:
+                    msg = (
+                        "Prepared batch does not contain input_ids tensor. "
+                        f"Available tensor keys: {sorted(model_inputs.keys())}. "
+                        f"Original keys: {input_keys}. "
+                        "Ensure the collate function returns input_ids tensors."
+                    )
+                    raise ValueError(msg)
+                with self._maybe_use_eager_attention(
+                    feature_plan.needs_attentions
+                ) as used_eager:
+                    try:
+                        outputs = self.model(
+                            **model_inputs,
+                            output_hidden_states=True,
+                            output_attentions=feature_plan.needs_attentions,
+                            return_dict=True,
+                        )
+                    except (ValueError, RuntimeError) as exc:
+                        # SDPA output_attentions failures surface as ValueError
+                        # (or RuntimeError in some torch builds).
+                        if (
+                            feature_plan.needs_attentions
+                            and _is_sdpa_output_attentions_error(exc)
+                        ):
+                            context_note = (
+                                " even after switching to eager" if used_eager else ""
+                            )
+                            _logger.warning(
+                                f"Model does not support output_attentions with "
+                                f"sdpa{context_note} (%s: %s); retrying without "
+                                "output_attentions.",
+                                type(exc).__name__,
+                                exc,
+                            )
+                            outputs = self.model(
+                                **model_inputs,
+                                output_hidden_states=True,
+                                output_attentions=False,
+                                return_dict=True,
+                            )
+                        else:
+                            raise
+                hidden_states = outputs.hidden_states
+                if hidden_states is None:
+                    msg = "Model did not return hidden states."
+                    raise ValueError(msg)
+                attentions = (
+                    outputs.attentions if feature_plan.needs_attentions else None
+                )
+
+                actual_num_layers = len(hidden_states) - 1
+                if expected_num_layers is None:
+                    expected_num_layers = actual_num_layers
+                    feature_plan.validate_layer_indices(expected_num_layers)
+                elif actual_num_layers != expected_num_layers:
+                    msg = (
+                        "Model returned inconsistent hidden state lengths. "
+                        f"Expected {expected_num_layers + 1} hidden states but got "
+                        f"{len(hidden_states)}."
+                    )
+                    raise ValueError(msg)
+                attentions, is_sequence = _normalize_attentions(attentions)
+                if attentions is not None and len(attentions) != actual_num_layers:
+                    msg = (
+                        "Model returned inconsistent attention lengths. "
+                        f"Expected {actual_num_layers} attention tensors but got "
+                        f"{len(attentions)}."
+                    )
+                    raise ValueError(msg)
+                for manager in hook_managers:
+                    manager.validate_layer_count(actual_num_layers)
+
+                batch_size = hidden_states[0].shape[0]
+                for idx in range(batch_size):
+                    embeddings = (
+                        hidden_states[0][idx].detach().cpu()
+                        if feature_plan.include_embeddings
+                        else None
+                    )
+                    embeddings = self._maybe_cast_result_tensor(embeddings)
+                    layer_features = self._build_layer_features(
+                        hidden_states, idx, feature_plan, attention_hooks
+                    )
+                    attention_features = self._build_attention_features(
+                        attentions,
+                        attention_hooks,
+                        idx,
+                        feature_plan,
+                    )
+                    mlp_features = self._build_mlp_features(
+                        feature_plan,
+                        mlp_hooks,
+                        idx,
+                    )
+                    yield (
+                        ExtractorResult(
+                            embeddings=embeddings,
+                            layer_features=layer_features,
+                            attention_features=attention_features,
+                            mlp_features=mlp_features,
+                        )
+                    )
+        finally:
+            for manager in hook_managers:
+                manager.remove()
+
+
+    def _prepare_batch(self, batch: Any) -> dict[str, Any]:
+        if isinstance(batch, dict):
+            return self._move_to_device(batch)
+
+        if isinstance(batch, torch.Tensor):
+            return {"input_ids": batch.to(self.device)}
+
+        if isinstance(batch, (list, tuple)):
+            if batch and isinstance(batch[0], str):
+                encoded = self.tokenizer(
+                    list(batch),
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True,
+                )
+                return self._move_to_device(dict(encoded))
+
+            if batch and all(isinstance(item, torch.Tensor) for item in batch):
+                if len(batch) == 1:
+                    return {"input_ids": batch[0].to(self.device)}
+                if len(batch) == 2:
+                    return {
+                        "input_ids": batch[0].to(self.device),
+                        "attention_mask": batch[1].to(self.device),
+                    }
+                msg = (
+                    "Unsupported tensor batch length. Expected 1 or 2 tensors, "
+                    f"got {len(batch)}."
+                )
+                raise TypeError(msg)
+
+        msg = f"Unsupported batch type: {type(batch)}"
+        raise TypeError(msg)
+
+    def _resolve_device(self) -> torch.device:
+        device = getattr(self.model, "device", None)
+        if device is not None:
+            return device
+
+        parameter = next(self.model.parameters(), None)
+        if parameter is None:
+            msg = "Model has no parameters and no device attribute."
+            raise ValueError(msg)
+
+        return parameter.device
+
+    def _is_tensor_input(
+        self, value: Any, depth: int = 0, key: str | None = None
+    ) -> bool:
+        """Return True for tensor-like inputs passed to the model.
+
+        Parameters
+        ----------
+        value : Any
+            Candidate input value to inspect.
+        depth : int
+            Current nesting depth for list/tuple inspection.
+        key : str | None
+            Batch key name for logging context when filtering nested structures.
+
+        Returns
+        -------
+        bool
+            True when the value is a tensor or a nested list/tuple of tensors
+            within the allowed nesting depth.
+        """
+        if isinstance(value, torch.Tensor):
+            return True
+        if isinstance(value, (list, tuple)):
+            if not value:
+                # Empty sequences provide no tensor payload to forward.
+                return False
+            if depth >= _MAX_TENSOR_NESTING_DEPTH:
+                _logger.warning(
+                    "Skipping nested tensor input for key '%s' deeper than %d levels.",
+                    key,
+                    _MAX_TENSOR_NESTING_DEPTH,
+                )
+                return False
+            return all(
+                self._is_tensor_input(item, depth + 1, key=key) for item in value
+            )
+        return False
+
+    def _move_to_device(self, batch: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: value.to(self.device) if isinstance(value, torch.Tensor) else value
+            for key, value in batch.items()
+        }
+
+    def _maybe_cast_result_tensor(
+        self, tensor: torch.Tensor | None
+    ) -> torch.Tensor | None:
+        if tensor is None or self.hook_dtype is None:
+            return tensor
+        return tensor.to(self.hook_dtype)
+
+    def _build_layer_features(
+        self,
+        hidden_states: tuple[torch.Tensor, ...],
+        sample_index: int,
+        feature_plan: _FeaturePlan,
+        attention_hooks: AttentionHookManager | None,
+    ) -> list[LayerFeatures]:
+        layer_features: list[LayerFeatures] = []
+        for layer_idx in feature_plan.sorted_layers:
+            layer_output = (
+                hidden_states[layer_idx + 1][sample_index].detach().cpu()
+                if layer_idx in feature_plan.output_or_ffn_layers
+                else None
+            )
+            layer_output = self._maybe_cast_result_tensor(layer_output)
+            output_tensor = (
+                layer_output if layer_idx in feature_plan.output_layers else None
+            )
+            input_tensor = (
+                hidden_states[layer_idx][sample_index].detach().cpu()
+                if layer_idx in feature_plan.pre_attn_layers
+                else None
+            )
+            input_tensor = self._maybe_cast_result_tensor(input_tensor)
+            attn_output = None
+            if layer_idx in feature_plan.layer_attn_output_layers:
+                if attention_hooks is None:
+                    msg = "Attention output features require attention hooks."
+                    raise ValueError(msg)
+                attn_output = attention_hooks.attn_output(layer_idx, sample_index)
+                attn_output = self._maybe_cast_result_tensor(attn_output)
+            mlp_output = (
+                layer_output if layer_idx in feature_plan.ffn_output_layers else None
+            )
+            layer_features.append(
+                LayerFeatures(
+                    layer_index=layer_idx,
+                    input=input_tensor,
+                    attn_output=attn_output,
+                    mlp_output=mlp_output,
+                    output=output_tensor,
+                )
+            )
+        return layer_features
+
+    def _build_attention_features(
+        self,
+        attentions: tuple[torch.Tensor, ...] | None,
+        attention_hooks: AttentionHookManager | None,
+        sample_index: int,
+        feature_plan: _FeaturePlan,
+    ) -> list[AttentionFeatures]:
+        attention_features: list[AttentionFeatures] = []
+        for layer_idx in feature_plan.sorted_attention_layers:
+            query = None
+            key = None
+            value = None
+            qk_logits = None
+            needs_projections = (
+                layer_idx in feature_plan.attn_query_layers
+                or layer_idx in feature_plan.attn_key_layers
+                or layer_idx in feature_plan.attn_value_layers
+            )
+            if needs_projections:
+                if attention_hooks is None:
+                    msg = (
+                        "Attention query/key/value features require projection hooks."
+                    )
+                    raise ValueError(msg)
+                if layer_idx in feature_plan.attn_query_layers:
+                    query = attention_hooks.query(layer_idx, sample_index)
+                    query = self._maybe_cast_result_tensor(query)
+                if layer_idx in feature_plan.attn_key_layers:
+                    key = attention_hooks.key(layer_idx, sample_index)
+                    key = self._maybe_cast_result_tensor(key)
+                if layer_idx in feature_plan.attn_value_layers:
+                    value = attention_hooks.value(layer_idx, sample_index)
+                    value = self._maybe_cast_result_tensor(value)
+            if layer_idx in feature_plan.attn_qk_logits_layers:
+                if attention_hooks is None:
+                    msg = "Attention qk_logits features require attention hooks."
+                    raise ValueError(msg)
+                qk_logits = attention_hooks.qk_logits(layer_idx, sample_index)
+                qk_logits = self._maybe_cast_result_tensor(qk_logits)
+                if qk_logits is None:
+                    _logger.warning(
+                        "Model did not expose attention logits for layer %d; "
+                        "qk_logits will be None.",
+                        layer_idx,
+                    )
+            weights = None
+            if layer_idx in feature_plan.attn_weights_layers:
+                if attentions is not None:
+                    weights = attentions[layer_idx][sample_index].detach().cpu()
+                    weights = self._maybe_cast_result_tensor(weights)
+                elif attention_hooks is not None:
+                    weights = self._derive_attention_weights_from_hooks(
+                        attention_hooks,
+                        layer_idx,
+                        sample_index,
+                    )
+                    weights = self._maybe_cast_result_tensor(weights)
+                    if weights is None:
+                        _logger.warning(
+                            "Attention weights requested but unavailable from hooks "
+                            "for layer %d. Ensure attention modules expose "
+                            "attention weights via attention_weights/attn_weights/"
+                            "attn_probs attributes for hook capture.",
+                            layer_idx,
+                        )
+                else:
+                    _logger.warning(
+                        "Attention weights requested but both model attentions and "
+                        "attention hooks are unavailable for layer %d. Enable "
+                        "output_attentions or install attention hooks.",
+                        layer_idx,
+                    )
+            attention_features.append(
+                AttentionFeatures(
+                    layer_index=layer_idx,
+                    query=query,
+                    key=key,
+                    value=value,
+                    qk_logits=qk_logits,
+                    attn_weights=weights,
+                )
+            )
+        return attention_features
+
+    def _derive_attention_weights_from_hooks(
+        self,
+        attention_hooks: AttentionHookManager | None,
+        layer_idx: int,
+        sample_index: int,
+    ) -> torch.Tensor | None:
+        """Retrieve attention weights from attention hooks when available.
+
+        Parameters
+        ----------
+        attention_hooks : AttentionHookManager | None
+            Hook manager used to fetch attention weights.
+        layer_idx : int
+            Layer index for projection lookup.
+        sample_index : int
+            Batch index for selecting a single sample.
+        Returns
+        -------
+        torch.Tensor | None
+            Attention weights, or None when unavailable.
+        """
+        if attention_hooks is None:
+            return None
+        weights = attention_hooks.attn_weights(layer_idx, sample_index)
+        return weights
+
+    def _build_mlp_features(
+        self,
+        feature_plan: _FeaturePlan,
+        mlp_hooks: MLPHookManager | None,
+        sample_index: int,
+    ) -> list[MLPFeatures]:
+        mlp_features: list[MLPFeatures] = []
+        for layer_idx in feature_plan.sorted_mlp_layers:
+            if mlp_hooks is None:
+                msg = "MLP activation features require MLP hooks."
+                raise ValueError(msg)
+            activation = mlp_hooks.activation(layer_idx, sample_index)
+            activation = self._maybe_cast_result_tensor(activation)
+            mlp_features.append(
+                MLPFeatures(layer_index=layer_idx, activation=activation)
+            )
+        return mlp_features
+
+    def _parse_feature_names(self) -> _FeaturePlan:
+        include_embeddings = False
+        pre_attn_layers: set[int] = set()
+        post_ffn_layers: set[int] = set()
+        layer_attn_output_layers: set[int] = set()
+        layer_ffn_output_layers: set[int] = set()
+        layer_output_layers: set[int] = set()
+        attn_query_layers: set[int] = set()
+        attn_key_layers: set[int] = set()
+        attn_value_layers: set[int] = set()
+        attn_qk_logits_layers: set[int] = set()
+        attn_weights_layers: set[int] = set()
+        mlp_activation_layers: set[int] = set()
+        unknown: list[str] = []
+
+        for feature_name in self.feature_cfg.feature_names:
+            if feature_name == "embeddings":
+                include_embeddings = True
+                continue
+
+            match = _RESIDUAL_FEATURE_RE.fullmatch(feature_name)
+            if match:
+                layer_index = int(match.group(1))
+                if match.group(2) == "pre_attn":
+                    pre_attn_layers.add(layer_index)
+                else:
+                    post_ffn_layers.add(layer_index)
+                continue
+
+            match = _LAYER_FEATURE_RE.fullmatch(feature_name)
+            if match:
+                layer_index = int(match.group(1))
+                feature_kind = match.group(2)
+                if feature_kind == "attn_output":
+                    layer_attn_output_layers.add(layer_index)
+                elif feature_kind == "ffn_output":
+                    layer_ffn_output_layers.add(layer_index)
+                else:
+                    layer_output_layers.add(layer_index)
+                continue
+
+            match = _ATTN_FEATURE_RE.fullmatch(feature_name)
+            if match:
+                layer_index = int(match.group(1))
+                feature_kind = match.group(2)
+                if feature_kind == "query":
+                    attn_query_layers.add(layer_index)
+                elif feature_kind == "key":
+                    attn_key_layers.add(layer_index)
+                elif feature_kind == "value":
+                    attn_value_layers.add(layer_index)
+                elif feature_kind == "qk_logits":
+                    attn_qk_logits_layers.add(layer_index)
+                else:
+                    attn_weights_layers.add(layer_index)
+                continue
+
+            match = _MLP_FEATURE_RE.fullmatch(feature_name)
+            if match:
+                layer_index = int(match.group(1))
+                mlp_activation_layers.add(layer_index)
+                continue
+
+            unknown.append(feature_name)
+
+        if unknown:
+            msg = f"Unsupported feature names: {', '.join(unknown)}"
+            raise ValueError(msg)
+
+        return _FeaturePlan(
+            include_embeddings=include_embeddings,
+            pre_attn_layers=pre_attn_layers,
+            post_ffn_layers=post_ffn_layers,
+            layer_attn_output_layers=layer_attn_output_layers,
+            layer_ffn_output_layers=layer_ffn_output_layers,
+            layer_output_layers=layer_output_layers,
+            attn_query_layers=attn_query_layers,
+            attn_key_layers=attn_key_layers,
+            attn_value_layers=attn_value_layers,
+            attn_qk_logits_layers=attn_qk_logits_layers,
+            attn_weights_layers=attn_weights_layers,
+            mlp_activation_layers=mlp_activation_layers,
+        )
+
+
+class _FeaturePlan:
+    def __init__(
+        self,
+        *,
+        include_embeddings: bool,
+        pre_attn_layers: set[int],
+        post_ffn_layers: set[int],
+        layer_attn_output_layers: set[int],
+        layer_ffn_output_layers: set[int],
+        layer_output_layers: set[int],
+        attn_query_layers: set[int],
+        attn_key_layers: set[int],
+        attn_value_layers: set[int],
+        attn_qk_logits_layers: set[int],
+        attn_weights_layers: set[int],
+        mlp_activation_layers: set[int],
+    ) -> None:
+        self.include_embeddings = include_embeddings
+        self.pre_attn_layers = pre_attn_layers
+        self.post_ffn_layers = post_ffn_layers
+        self.layer_attn_output_layers = layer_attn_output_layers
+        self.layer_ffn_output_layers = layer_ffn_output_layers
+        self.layer_output_layers = layer_output_layers
+        self.attn_query_layers = attn_query_layers
+        self.attn_key_layers = attn_key_layers
+        self.attn_value_layers = attn_value_layers
+        self.attn_qk_logits_layers = attn_qk_logits_layers
+        self.attn_weights_layers = attn_weights_layers
+        self.mlp_activation_layers = mlp_activation_layers
+        self.sorted_layers = sorted(
+            pre_attn_layers
+            | post_ffn_layers
+            | layer_attn_output_layers
+            | layer_ffn_output_layers
+            | layer_output_layers
+        )
+        self.sorted_attention_layers = sorted(
+            attn_query_layers
+            | attn_key_layers
+            | attn_value_layers
+            | attn_qk_logits_layers
+            | attn_weights_layers
+        )
+        self.sorted_mlp_layers = sorted(mlp_activation_layers)
+        self.all_layers = (
+            set(self.sorted_layers)
+            | set(self.sorted_attention_layers)
+            | set(self.sorted_mlp_layers)
+        )
+        self.output_layers = post_ffn_layers | layer_output_layers
+        self.ffn_output_layers = layer_ffn_output_layers
+        self.output_or_ffn_layers = self.output_layers | self.ffn_output_layers
+
+    def validate_layer_indices(self, num_layers: int) -> None:
+        if not self.all_layers:
+            return
+        max_index = max(self.all_layers)
+        if max_index >= num_layers:
+            msg = (
+                f"Requested layer index {max_index} exceeds available layers "
+                f"(valid range: 0-{num_layers - 1})."
+            )
+            raise ValueError(msg)
+
+    @property
+    def needs_attentions(self) -> bool:
+        return bool(self.attn_weights_layers)
+
+    @property
+    def needs_qkv(self) -> bool:
+        return bool(
+            self.attn_query_layers or self.attn_key_layers or self.attn_value_layers
+        )
+
+    @property
+    def needs_attention_hooks(self) -> bool:
+        return bool(self.attn_weights_layers) or self.needs_qkv or bool(
+            self.layer_attn_output_layers or self.attn_qk_logits_layers
+        )
