@@ -464,8 +464,9 @@ class BaseFeatureExtractor:
         _logger.warning(
             "Attention weights requested but attention logits were unavailable "
             "for layer %d. Verify that the attention module exposes logits via "
-            "attn_logits/attn_scores/last_qk_logits or returns them as the second "
-            "element in a tuple output.",
+            "attn_logits/attn_scores/last_qk_logits (module or output attributes), "
+            "uses dict keys with those names, or returns them as the second element "
+            "in a tuple output.",
             layer_idx,
         )
         return None, qk_logits

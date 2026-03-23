@@ -16,7 +16,7 @@ from feature_extractor.models.architecture import (
 _logger = logging.getLogger(__name__)
 
 
-def _extract_qk_logits(module: nn.Module, output: object) -> torch.Tensor | None:
+def _extract_attention_logits(module: nn.Module, output: object) -> torch.Tensor | None:
     for attr in ("attn_logits", "last_qk_logits", "attn_scores"):
         value = getattr(module, attr, None)
         if isinstance(value, torch.Tensor):
@@ -34,7 +34,8 @@ def _extract_qk_logits(module: nn.Module, output: object) -> torch.Tensor | None
                 return value
     if isinstance(output, (tuple, list)) and len(output) > 1:
         # Some attention modules return pre-softmax logits as the second element
-        # of a tuple output, shaped (batch, heads, seq_len, seq_len).
+        # in tuple outputs like (attn_output, attn_scores, ...), shaped
+        # (batch, heads, seq_len, seq_len).
         if isinstance(output[1], torch.Tensor) and output[1].dim() == 4:
             return output[1]
     return None
@@ -220,7 +221,7 @@ class AttentionOutputCache:
                 )
                 raise TypeError(msg)
             storage[index] = output_tensor.detach()
-            logits_tensor = _extract_qk_logits(module, output)
+            logits_tensor = _extract_attention_logits(module, output)
             if logits_tensor is not None:
                 logits_storage[index] = logits_tensor.detach()
 
