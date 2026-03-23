@@ -104,9 +104,10 @@ class BaseFeatureExtractor:
                     )
                     raise ValueError(msg)
                 missing_attentions = attentions is None
-                if isinstance(attentions, Sequence) and not isinstance(
+                is_sequence = isinstance(attentions, Sequence) and not isinstance(
                     attentions, (str, bytes)
-                ):
+                )
+                if is_sequence:
                     if len(attentions) == 0:
                         missing_attentions = True
                         attentions = None
@@ -123,7 +124,7 @@ class BaseFeatureExtractor:
                         "Model did not return attention weights; returning None "
                         "for attention weight features."
                     )
-                if isinstance(attentions, Sequence) and len(attentions) != actual_num_layers:
+                if is_sequence and len(attentions) != actual_num_layers:
                     msg = (
                         "Model returned inconsistent attention lengths. "
                         f"Expected {actual_num_layers} attention tensors but got "
