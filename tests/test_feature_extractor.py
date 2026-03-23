@@ -151,7 +151,7 @@ class DummySDPAModel(DummyModel):
         self.forward_attn_implementation = self.config.attn_implementation
         if self.config.attn_implementation == "sdpa" and output_attentions:
             raise ValueError(
-                "sdpa attention does not support output_attentions=True"
+                "SDPA attention does not support output_attentions=True"
             )
         return super().forward(
             input_ids=input_ids,
