@@ -109,6 +109,11 @@ class BaseFeatureExtractor:
                         missing_attentions = True
                         attentions = None
                 elif attentions is not None:
+                    _logger.warning(
+                        "Model returned attention weights in unsupported format "
+                        f"{type(attentions)}; returning None for attention weight "
+                        "features."
+                    )
                     missing_attentions = True
                     attentions = None
                 if feature_plan.needs_attentions and missing_attentions:
