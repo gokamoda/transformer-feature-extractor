@@ -64,7 +64,21 @@ def _normalize_attentions(
         )
     is_sequence = False
     if attentions is not None:
-        if _is_indexable_sequence(attentions):
+        if isinstance(attentions, torch.Tensor):
+            if attentions.dim() == 5:
+                attentions = tuple(attentions[i] for i in range(attentions.shape[0]))
+                is_sequence = True
+            elif attentions.dim() == 4:
+                attentions = (attentions,)
+                is_sequence = True
+            else:
+                _logger.warning(
+                    "Model returned attention weights tensor with unsupported "
+                    "shape %s; returning None for attention weight features.",
+                    tuple(attentions.shape),
+                )
+                attentions = None
+        elif _is_indexable_sequence(attentions):
             if len(attentions) == 0:
                 attentions = None
             else:

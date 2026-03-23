@@ -83,6 +83,51 @@ class DummyModel(nn.Module):
         return SimpleNamespace(hidden_states=tuple(hidden_states), attentions=attentions)
 
 
+class DummyTensorAttentionModel(nn.Module):
+    def __init__(
+        self, hidden_size: int = 4, num_layers: int = 2, num_heads: int = 1
+    ) -> None:
+        super().__init__()
+        self.embedding = nn.Embedding(20, hidden_size)
+        self.layers = nn.ModuleList(
+            [nn.Linear(hidden_size, hidden_size) for _ in range(num_layers)]
+        )
+        self.num_heads = num_heads
+        self.last_output_attentions: bool | None = None
+
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
+    def forward(
+        self,
+        *,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+        **kwargs,
+    ):
+        self.last_output_attentions = output_attentions
+        hidden_states = []
+        hidden = self.embedding(input_ids)
+        hidden_states.append(hidden)
+        for layer in self.layers:
+            hidden = layer(hidden)
+            hidden_states.append(hidden)
+        attentions = None
+        if output_attentions:
+            batch_size, seq_len = input_ids.shape
+            eye = torch.eye(seq_len, dtype=hidden.dtype, device=hidden.device)
+            attn = eye.unsqueeze(0).unsqueeze(0).repeat(
+                batch_size, self.num_heads, 1, 1
+            )
+            attention_layers = [attn.clone() for _ in self.layers]
+            attentions = torch.stack(attention_layers, dim=0)
+        return SimpleNamespace(hidden_states=tuple(hidden_states), attentions=attentions)
+
+
 class DummyMLP(nn.Module):
     def __init__(self, hidden_size: int, mlp_dim: int) -> None:
         super().__init__()
@@ -421,6 +466,28 @@ def test_extract_features_with_attention_weights(monkeypatch):
     assert len(results[0].attention_features) == 1
     assert results[0].attention_features[0].layer_index == 0
     assert results[0].attention_features[0].attn_weights.shape == (1, 3, 3)
+
+
+def test_extract_features_with_tensor_attentions(monkeypatch):
+    model = DummyTensorAttentionModel(hidden_size=4, num_layers=1)
+    tokenizer = DummyTokenizer()
+
+    _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
+
+    feature_cfg = FeatureConfig(feature_names=["attn.layer_00.weights"])
+    extractor = BaseFeatureExtractor("dummy", feature_cfg)
+    dataset = [
+        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
+    ]
+    data_loader = DataLoader(dataset, batch_size=1)
+
+    results = list(extractor.extract_features(data_loader))
+
+    assert len(results) == 1
+    assert model.last_output_attentions is True
+    weights = results[0].attention_features[0].attn_weights
+    assert weights is not None
+    assert weights.shape == (1, 3, 3)
 
 
 def test_extract_features_with_attention_weights_fallback(monkeypatch):
