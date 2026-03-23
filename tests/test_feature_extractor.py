@@ -83,9 +83,10 @@ class DummyLlamaAttention(nn.Module):
         query = self.q_proj(hidden_states)
         key = self.k_proj(hidden_states)
         value = self.v_proj(hidden_states)
-        query = query + (key.sum(dim=-1, keepdim=True) * 0)
-        query = query + (value.sum(dim=-1, keepdim=True) * 0)
-        return self.o_proj(query)
+        combined = query + key.mean(dim=-1, keepdim=True) + value.mean(
+            dim=-1, keepdim=True
+        )
+        return self.o_proj(combined)
 
 
 class DummyLlamaLayer(nn.Module):

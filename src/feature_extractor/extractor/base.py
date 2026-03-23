@@ -683,7 +683,13 @@ class _AttentionProjectionCache:
     @staticmethod
     def _make_store_hook(storage: list[torch.Tensor | None], index: int):
         def hook(_module, _inputs, output):
-            storage[index] = output.detach() if isinstance(output, torch.Tensor) else output
+            if not isinstance(output, torch.Tensor):
+                msg = (
+                    "Attention projection hook expected a Tensor output "
+                    f"but received {type(output)}."
+                )
+                raise TypeError(msg)
+            storage[index] = output.detach()
 
         return hook
 
