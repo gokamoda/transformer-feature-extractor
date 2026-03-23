@@ -47,15 +47,17 @@ class BaseFeatureExtractor:
         self.model.eval()
         for batch in data_loader:
             inputs = self._prepare_batch(batch)
+            input_keys = sorted(inputs.keys())
             model_inputs = {
                 key: value
                 for key, value in inputs.items()
-                if self._is_tensor_input(value)
+                if self._is_tensor_input(value, key=key)
             }
             if "input_ids" not in model_inputs:
                 msg = (
                     "Prepared batch does not contain input_ids tensor. "
-                    f"Available keys: {sorted(model_inputs.keys())}. "
+                    f"Available tensor keys: {sorted(model_inputs.keys())}. "
+                    f"Original keys: {input_keys}. "
                     "Ensure the collate function returns input_ids tensors."
                 )
                 raise ValueError(msg)
@@ -145,7 +147,9 @@ class BaseFeatureExtractor:
 
         return parameter.device
 
-    def _is_tensor_input(self, value: Any, depth: int = 0) -> bool:
+    def _is_tensor_input(
+        self, value: Any, depth: int = 0, key: str | None = None
+    ) -> bool:
         """Return True for tensor-like inputs passed to the model.
 
         Parameters
@@ -169,11 +173,14 @@ class BaseFeatureExtractor:
                 return False
             if depth >= _MAX_TENSOR_NESTING_DEPTH:
                 _logger.warning(
-                    "Skipping nested tensor input deeper than %d levels.",
+                    "Skipping nested tensor input for key '%s' deeper than %d levels.",
+                    key,
                     _MAX_TENSOR_NESTING_DEPTH,
                 )
                 return False
-            return all(self._is_tensor_input(item, depth + 1) for item in value)
+            return all(
+                self._is_tensor_input(item, depth + 1, key=key) for item in value
+            )
         return False
 
     def _move_to_device(self, batch: dict[str, Any]) -> dict[str, Any]:
