@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass
 
 import torch
@@ -15,6 +14,31 @@ from feature_extractor.models.architecture import (
 )
 
 _logger = logging.getLogger(__name__)
+
+
+def _resolve_qk_logits(module: nn.Module, output: object) -> torch.Tensor | None:
+    for attr in ("attn_logits", "last_qk_logits", "attn_scores"):
+        value = getattr(module, attr, None)
+        if isinstance(value, torch.Tensor):
+            return value
+    if hasattr(output, "attn_logits"):
+        value = getattr(output, "attn_logits", None)
+        if isinstance(value, torch.Tensor):
+            return value
+    if hasattr(output, "attn_scores"):
+        value = getattr(output, "attn_scores", None)
+        if isinstance(value, torch.Tensor):
+            return value
+    if isinstance(output, dict):
+        for key in ("attn_logits", "attn_scores"):
+            value = output.get(key)
+            if isinstance(value, torch.Tensor):
+                return value
+    if isinstance(output, (tuple, list)) and len(output) > 1:
+        if isinstance(output[1], torch.Tensor):
+            return output[1]
+    return None
+
 @dataclass(frozen=True)
 class AttentionHeadConfig:
     """Shape metadata for attention projections."""
@@ -167,15 +191,22 @@ class AttentionOutputCache:
 
     def __init__(self, attn_modules: list[nn.Module]) -> None:
         self.outputs: list[torch.Tensor | None] = [None] * len(attn_modules)
+        self.qk_logits: list[torch.Tensor | None] = [None] * len(attn_modules)
         self._hooks = []
         for idx, module in enumerate(attn_modules):
             self._hooks.append(
-                module.register_forward_hook(self._make_store_hook(self.outputs, idx))
+                module.register_forward_hook(
+                    self._make_store_hook(self.outputs, self.qk_logits, idx)
+                )
             )
 
     @staticmethod
-    def _make_store_hook(storage: list[torch.Tensor | None], index: int):
-        def hook(_module, _inputs, output):
+    def _make_store_hook(
+        storage: list[torch.Tensor | None],
+        logits_storage: list[torch.Tensor | None],
+        index: int,
+    ):
+        def hook(module, _inputs, output):
             output_tensor = None
             if isinstance(output, torch.Tensor):
                 output_tensor = output
@@ -189,12 +220,16 @@ class AttentionOutputCache:
                 )
                 raise TypeError(msg)
             storage[index] = output_tensor.detach()
+            logits_tensor = _resolve_qk_logits(module, output)
+            if logits_tensor is not None:
+                logits_storage[index] = logits_tensor.detach()
 
         return hook
 
     def reset(self) -> None:
         for idx in range(len(self.outputs)):
             self.outputs[idx] = None
+            self.qk_logits[idx] = None
 
     def remove(self) -> None:
         for hook in self._hooks:
@@ -231,7 +266,8 @@ class AttentionHookManager(HookManager):
 
     Use ``install()`` once before inference, then call ``reset()`` per batch.
     Access per-layer projections via ``query()``, ``key()``, and ``value()``, and
-    compute logits with ``qk_logits()``. Use ``remove()`` to clean up hooks.
+    retrieve logits with ``qk_logits()`` when the attention module exposes them.
+    Use ``remove()`` to clean up hooks.
     """
     def __init__(
         self,
@@ -335,10 +371,18 @@ class AttentionHookManager(HookManager):
             num_attention_heads=head_config.num_heads,
         )
 
-    def qk_logits(self, query: torch.Tensor, key: torch.Tensor) -> torch.Tensor:
-        """Compute scaled dot-product attention logits."""
-        scaling_factor = 1.0 / math.sqrt(self._head_config_or_raise().head_dim)
-        return torch.matmul(query, key.transpose(-2, -1)) * scaling_factor
+    def qk_logits(self, layer_idx: int, sample_index: int) -> torch.Tensor | None:
+        """Return attention logits captured from the attention module."""
+        logits = self._attn_output_cache_or_raise().qk_logits[layer_idx]
+        if logits is None:
+            return None
+        if logits.dim() != 4:
+            msg = (
+                "Attention logits must be a 4D tensor "
+                f"(got shape {tuple(logits.shape)})."
+            )
+            raise ValueError(msg)
+        return logits[sample_index].detach().cpu()
 
     def attn_output(self, layer_idx: int, sample_index: int) -> torch.Tensor:
         """Return attention output for the requested layer."""

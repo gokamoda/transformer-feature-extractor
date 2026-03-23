@@ -147,16 +147,33 @@ class DummyLlamaAttention(nn.Module):
     def __init__(self, hidden_size: int, num_heads: int, num_key_value_heads: int) -> None:
         super().__init__()
         head_dim = hidden_size // num_heads
+        self.num_heads = num_heads
+        self.num_key_value_heads = num_key_value_heads
+        self.head_dim = head_dim
+        self.scale = head_dim**-0.5
         self.q_proj = nn.Linear(hidden_size, num_heads * head_dim, bias=False)
         self.k_proj = nn.Linear(hidden_size, num_key_value_heads * head_dim, bias=False)
         self.v_proj = nn.Linear(hidden_size, num_key_value_heads * head_dim, bias=False)
         self.o_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.last_qk_logits: torch.Tensor | None = None
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        query = self.q_proj(hidden_states)
-        key = self.k_proj(hidden_states)
-        value = self.v_proj(hidden_states)
-        combined = query + key.mean(dim=-1, keepdim=True) + value.mean(
+        query_proj = self.q_proj(hidden_states)
+        key_proj = self.k_proj(hidden_states)
+        value_proj = self.v_proj(hidden_states)
+        batch_size, seq_len, _ = query_proj.shape
+        query = query_proj.view(
+            batch_size, seq_len, self.num_heads, self.head_dim
+        ).transpose(1, 2)
+        key = key_proj.view(
+            batch_size, seq_len, self.num_key_value_heads, self.head_dim
+        ).transpose(1, 2)
+        if self.num_heads != self.num_key_value_heads:
+            key = key.repeat_interleave(
+                self.num_heads // self.num_key_value_heads, dim=1
+            )
+        self.last_qk_logits = torch.matmul(query, key.transpose(-2, -1)) * self.scale
+        combined = query_proj + key_proj.mean(dim=-1, keepdim=True) + value_proj.mean(
             dim=-1, keepdim=True
         )
         return self.o_proj(combined)

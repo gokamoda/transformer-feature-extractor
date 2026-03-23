@@ -99,7 +99,11 @@ class BaseFeatureExtractor:
             )
             attention_hooks.install(
                 required=feature_plan.needs_qkv,
-                capture_attn_output=bool(feature_plan.layer_attn_output_layers),
+                capture_attn_output=bool(
+                    feature_plan.layer_attn_output_layers
+                    or feature_plan.attn_qk_logits_layers
+                    or feature_plan.attn_weights_layers
+                ),
             )
             if (
                 attention_hooks.projection_cache is not None
@@ -371,37 +375,33 @@ class BaseFeatureExtractor:
                         "Attention query/key/value features require projection hooks."
                     )
                     raise ValueError(msg)
-                if (
-                    layer_idx in feature_plan.attn_query_layers
-                    or layer_idx in feature_plan.attn_qk_logits_layers
-                ):
+                if layer_idx in feature_plan.attn_query_layers:
                     query = attention_hooks.query(layer_idx, sample_index)
-                if (
-                    layer_idx in feature_plan.attn_key_layers
-                    or layer_idx in feature_plan.attn_qk_logits_layers
-                ):
+                if layer_idx in feature_plan.attn_key_layers:
                     key = attention_hooks.key(layer_idx, sample_index)
                 if layer_idx in feature_plan.attn_value_layers:
                     value = attention_hooks.value(layer_idx, sample_index)
-                if layer_idx in feature_plan.attn_qk_logits_layers:
-                    if query is None or key is None:
-                        msg = (
-                            "Attention qk_logits requested but projections were missing."
-                        )
-                        raise ValueError(msg)
-                    qk_logits = attention_hooks.qk_logits(query, key)
+            if layer_idx in feature_plan.attn_qk_logits_layers:
+                if attention_hooks is None:
+                    msg = "Attention qk_logits features require attention hooks."
+                    raise ValueError(msg)
+                qk_logits = attention_hooks.qk_logits(layer_idx, sample_index)
+                if qk_logits is None:
+                    _logger.warning(
+                        "Model did not expose attention logits for layer %d; "
+                        "qk_logits will be None.",
+                        layer_idx,
+                    )
             weights = None
             if layer_idx in feature_plan.attn_weights_layers:
                 if attentions is not None:
                     weights = attentions[layer_idx][sample_index].detach().cpu()
                 else:
-                    (weights, qk_logits, query, key) = (
+                    (weights, qk_logits) = (
                         self._compute_attention_weights_fallback(
                             attention_hooks,
                             layer_idx,
                             sample_index,
-                            query,
-                            key,
                             qk_logits,
                         )
                     )
@@ -422,37 +422,28 @@ class BaseFeatureExtractor:
         attention_hooks: AttentionHookManager | None,
         layer_idx: int,
         sample_index: int,
-        query: torch.Tensor | None,
-        key: torch.Tensor | None,
         qk_logits: torch.Tensor | None,
     ) -> tuple[
         torch.Tensor | None,
         torch.Tensor | None,
-        torch.Tensor | None,
-        torch.Tensor | None,
     ]:
-        """Compute attention weights from q/k projections when attentions are missing.
+        """Compute attention weights from model-provided logits when available.
 
         Parameters
         ----------
         attention_hooks : AttentionHookManager | None
-            Hook manager used to fetch q/k projections.
+            Hook manager used to fetch attention logits.
         layer_idx : int
             Layer index for projection lookup.
         sample_index : int
             Batch index for selecting a single sample.
-        query : torch.Tensor | None
-            Precomputed query projection for reuse.
-        key : torch.Tensor | None
-            Precomputed key projection for reuse.
         qk_logits : torch.Tensor | None
             Precomputed qk logits for reuse.
 
         Returns
         -------
         tuple
-            (weights, qk_logits, query, key) where weights may be None when fallback
-            is unavailable.
+            (weights, qk_logits) where weights may be None when fallback is unavailable.
         """
         if attention_hooks is None:
             _logger.warning(
@@ -460,21 +451,18 @@ class BaseFeatureExtractor:
                 "for layer %d.",
                 layer_idx,
             )
-            return None, qk_logits, query, key
-        if query is None:
-            query = attention_hooks.query(layer_idx, sample_index)
-        if key is None:
-            key = attention_hooks.key(layer_idx, sample_index)
-        if query is not None and key is not None:
-            if qk_logits is None:
-                qk_logits = attention_hooks.qk_logits(query, key)
+            return None, qk_logits
+        if qk_logits is None:
+            qk_logits = attention_hooks.qk_logits(layer_idx, sample_index)
+        if qk_logits is not None:
             weights = torch.softmax(qk_logits, dim=-1)
-            return weights, qk_logits, query, key
+            return weights, qk_logits
         _logger.warning(
-            "Attention weights requested but projections were missing for layer %d.",
+            "Attention weights requested but attention logits were unavailable "
+            "for layer %d.",
             layer_idx,
         )
-        return None, qk_logits, query, key
+        return None, qk_logits
 
     def _build_mlp_features(
         self,
@@ -649,14 +637,11 @@ class _FeaturePlan:
     @property
     def needs_qkv(self) -> bool:
         return bool(
-            self.attn_query_layers
-            or self.attn_key_layers
-            or self.attn_value_layers
-            or self.attn_qk_logits_layers
+            self.attn_query_layers or self.attn_key_layers or self.attn_value_layers
         )
 
     @property
     def needs_attention_hooks(self) -> bool:
         return bool(self.attn_weights_layers) or self.needs_qkv or bool(
-            self.layer_attn_output_layers
+            self.layer_attn_output_layers or self.attn_qk_logits_layers
         )
