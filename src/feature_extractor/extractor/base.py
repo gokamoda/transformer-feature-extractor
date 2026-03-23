@@ -401,11 +401,18 @@ class BaseFeatureExtractor:
             if layer_idx in feature_plan.attn_weights_layers:
                 if attentions is not None:
                     weights = attentions[layer_idx][sample_index].detach().cpu()
-                else:
+                elif attention_hooks is not None:
                     weights = self._derive_attention_weights_from_hooks(
                         attention_hooks,
                         layer_idx,
                         sample_index,
+                    )
+                else:
+                    _logger.warning(
+                        "Attention weights requested but the model did not return "
+                        "attentions and attention hooks are unavailable for layer %d. "
+                        "Enable output_attentions or install attention hooks.",
+                        layer_idx,
                     )
             attention_features.append(
                 AttentionFeatures(
