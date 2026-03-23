@@ -30,7 +30,9 @@ if __name__ == "__main__":
         data = [Entry(idx=item["idx"], text=item["text"]) for item in dataset_raw]
     )
     main(
-        model_name_or_path="openai-community/gpt2",
+        # model_name_or_path="openai-community/gpt2",
+        # model_name_or_path="meta-llama/Llama-2-7b-hf",
+        model_name_or_path="meta-llama/Llama-3.2-1B",
         dataset=dataset,
         feature_cfg=FeatureConfig(
             feature_names=[
