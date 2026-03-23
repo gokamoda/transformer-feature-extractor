@@ -158,6 +158,8 @@ class BaseFeatureExtractor:
             Candidate input value to inspect.
         depth : int
             Current nesting depth for list/tuple inspection.
+        key : str | None
+            Batch key name for logging context when filtering nested structures.
 
         Returns
         -------
