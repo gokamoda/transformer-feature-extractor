@@ -712,6 +712,49 @@ def test_extract_features_with_qkv_gqa(monkeypatch):
     assert features.qk_logits.shape == (2, 3, 3)
 
 
+def test_extract_features_casts_hook_tensors(monkeypatch):
+    model = DummyLlamaModel(hidden_size=4, num_heads=2, num_key_value_heads=1)
+    tokenizer = DummyTokenizer()
+
+    _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
+
+    feature_cfg = FeatureConfig(
+        feature_names=[
+            "attn.layer_00.query",
+            "attn.layer_00.key",
+            "attn.layer_00.value",
+            "attn.layer_00.qk_logits",
+            "attn.layer_00.weights",
+            "layer.layer_00.attn_output",
+        ]
+    )
+    extractor = BaseFeatureExtractor(
+        "dummy", feature_cfg, hook_dtype=torch.float16
+    )
+    dataset = [
+        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
+    ]
+    data_loader = DataLoader(dataset, batch_size=1)
+
+    results = list(extractor.extract_features(data_loader))
+
+    assert len(results) == 1
+    features = results[0].attention_features[0]
+    assert features.query is not None
+    assert features.key is not None
+    assert features.value is not None
+    assert features.qk_logits is not None
+    assert features.attn_weights is not None
+    assert features.query.dtype == torch.float16
+    assert features.key.dtype == torch.float16
+    assert features.value.dtype == torch.float16
+    assert features.qk_logits.dtype == torch.float16
+    assert features.attn_weights.dtype == torch.float16
+    attn_output = results[0].layer_features[0].attn_output
+    assert attn_output is not None
+    assert attn_output.dtype == torch.float16
+
+
 def test_extract_features_with_conv1d_qkv(monkeypatch):
     model = DummyGPT2Model(hidden_size=4, num_heads=2)
     tokenizer = DummyTokenizer()
@@ -769,3 +812,26 @@ def test_extract_features_with_mlp_activation(monkeypatch):
             dataset[0]["input_ids"].unsqueeze(0),
         )[0]
     assert torch.allclose(activation, expected)
+
+
+def test_extract_features_casts_mlp_activation(monkeypatch):
+    model = DummyMLPModel(hidden_size=4, mlp_dim=6, num_layers=1)
+    tokenizer = DummyTokenizer()
+
+    _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
+
+    feature_cfg = FeatureConfig(feature_names=["mlp.layer_00.activation"])
+    extractor = BaseFeatureExtractor(
+        "dummy", feature_cfg, hook_dtype=torch.float16
+    )
+    dataset = [
+        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
+    ]
+    data_loader = DataLoader(dataset, batch_size=1)
+
+    results = list(extractor.extract_features(data_loader))
+
+    assert len(results) == 1
+    activation = results[0].mlp_features[0].activation
+    assert activation is not None
+    assert activation.dtype == torch.float16

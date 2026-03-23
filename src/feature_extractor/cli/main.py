@@ -1,9 +1,11 @@
-from feature_extractor.configs.schema import FeatureConfig
-from feature_extractor.extractor.base import BaseFeatureExtractor
-from feature_extractor.data.load import load_jsonl_text_dataset
-from feature_extractor.data.dataset import Entry, TextDataset
+import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+
+from feature_extractor.configs.schema import FeatureConfig
+from feature_extractor.data.dataset import Entry, TextDataset
+from feature_extractor.data.load import load_jsonl_text_dataset
+from feature_extractor.extractor.base import BaseFeatureExtractor
 
 
 
@@ -11,8 +13,9 @@ def main(
     model_name_or_path: str,
     dataset: TextDataset,
     feature_cfg: FeatureConfig,
+    dtype: torch.dtype = torch.float32,
 ):
-    extractor = BaseFeatureExtractor(model_name_or_path, feature_cfg)
+    extractor = BaseFeatureExtractor(model_name_or_path, feature_cfg, hook_dtype=dtype)
     dataloader = DataLoader(
         dataset,
         batch_size=8,
@@ -52,5 +55,6 @@ if __name__ == "__main__":
             output_dir="outputs/features",
             save_format="pt",
             batch_size=2,
-        )
+        ),
+        dtype=torch.float32,
     )
