@@ -128,6 +128,39 @@ class DummyTensorAttentionModel(nn.Module):
         return SimpleNamespace(hidden_states=tuple(hidden_states), attentions=attentions)
 
 
+class DummySDPAModel(DummyModel):
+    def __init__(
+        self, hidden_size: int = 4, num_layers: int = 2, num_heads: int = 1
+    ) -> None:
+        super().__init__(
+            hidden_size=hidden_size, num_layers=num_layers, num_heads=num_heads
+        )
+        self.config = SimpleNamespace(attn_implementation="sdpa")
+
+    def forward(
+        self,
+        *,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+        **kwargs,
+    ):
+        if self.config.attn_implementation == "sdpa" and output_attentions:
+            raise ValueError(
+                "sdpa attention does not support output_attentions=True"
+            )
+        return super().forward(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+            **kwargs,
+        )
+
+
 class DummyMLP(nn.Module):
     def __init__(self, hidden_size: int, mlp_dim: int) -> None:
         super().__init__()
@@ -485,6 +518,29 @@ def test_extract_features_with_tensor_attentions(monkeypatch):
 
     assert len(results) == 1
     assert model.last_output_attentions is True
+    weights = results[0].attention_features[0].attn_weights
+    assert weights is not None
+    assert weights.shape == (1, 3, 3)
+
+
+def test_extract_features_with_sdpa_attention_override(monkeypatch):
+    model = DummySDPAModel(hidden_size=4, num_layers=1)
+    tokenizer = DummyTokenizer()
+
+    _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
+
+    feature_cfg = FeatureConfig(feature_names=["attn.layer_00.weights"])
+    extractor = BaseFeatureExtractor("dummy", feature_cfg)
+    dataset = [
+        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
+    ]
+    data_loader = DataLoader(dataset, batch_size=1)
+
+    results = list(extractor.extract_features(data_loader))
+
+    assert len(results) == 1
+    assert model.last_output_attentions is True
+    assert model.config.attn_implementation == "sdpa"
     weights = results[0].attention_features[0].attn_weights
     assert weights is not None
     assert weights.shape == (1, 3, 3)

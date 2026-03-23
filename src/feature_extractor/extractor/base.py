@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import warnings
+from contextlib import contextmanager
 from collections.abc import Sequence
 from typing import Any, Generator
 
@@ -93,6 +94,11 @@ def _normalize_attentions(
     return attentions, is_sequence
 
 
+def _is_sdpa_output_attentions_error(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return "sdpa" in message and "output_attentions" in message
+
+
 class BaseFeatureExtractor:
     model: PreTrainedModel
     tokenizer: PreTrainedTokenizer
@@ -112,6 +118,33 @@ class BaseFeatureExtractor:
     def register_hooks(self):
         # For this basic implementation, we don't need to register any hooks
         pass
+
+    @contextmanager
+    def _maybe_use_eager_attention(self, output_attentions: bool):
+        if not output_attentions:
+            yield False
+            return
+        config = getattr(self.model, "config", None)
+        if config is None:
+            yield False
+            return
+        originals: dict[str, Any] = {}
+        for attr in ("attn_implementation", "_attn_implementation"):
+            if not hasattr(config, attr):
+                continue
+            value = getattr(config, attr)
+            if not isinstance(value, str) or value != "sdpa":
+                continue
+            originals[attr] = value
+            setattr(config, attr, "eager")
+        if not originals:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            for attr, value in originals.items():
+                setattr(config, attr, value)
 
     @torch.no_grad()
     def extract_features(
@@ -181,12 +214,31 @@ class BaseFeatureExtractor:
                         "Ensure the collate function returns input_ids tensors."
                     )
                     raise ValueError(msg)
-                outputs = self.model(
-                    **model_inputs,
-                    output_hidden_states=True,
-                    output_attentions=feature_plan.needs_attentions,
-                    return_dict=True,
-                )
+                try:
+                    with self._maybe_use_eager_attention(feature_plan.needs_attentions):
+                        outputs = self.model(
+                            **model_inputs,
+                            output_hidden_states=True,
+                            output_attentions=feature_plan.needs_attentions,
+                            return_dict=True,
+                        )
+                except Exception as exc:
+                    if (
+                        feature_plan.needs_attentions
+                        and _is_sdpa_output_attentions_error(exc)
+                    ):
+                        _logger.warning(
+                            "Model does not support output_attentions with sdpa; "
+                            "retrying without output_attentions."
+                        )
+                        outputs = self.model(
+                            **model_inputs,
+                            output_hidden_states=True,
+                            output_attentions=False,
+                            return_dict=True,
+                        )
+                    else:
+                        raise
                 hidden_states = outputs.hidden_states
                 if hidden_states is None:
                     msg = "Model did not return hidden states."
