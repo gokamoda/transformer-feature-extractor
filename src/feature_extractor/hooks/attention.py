@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 
@@ -9,6 +10,7 @@ from torch import nn
 from feature_extractor.hooks.base import HookManager
 from feature_extractor.models.architecture import BaseModelArchitecture
 
+_logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class AttentionHeadConfig:
     """Shape metadata for attention projections."""
@@ -201,6 +203,12 @@ class AttentionHookManager(HookManager):
         model_root = getattr(model, architecture.model_field, model)
         layers = getattr(model_root, architecture.layer_field, None)
         if layers is None:
+            _logger.warning(
+                "Model architecture config did not resolve layers via %s.%s; "
+                "falling back to default layer attributes.",
+                architecture.model_field,
+                architecture.layer_field,
+            )
             if hasattr(model, "model") and hasattr(model.model, "layers"):
                 layers = model.model.layers
             elif hasattr(model, "layers"):
@@ -216,6 +224,11 @@ class AttentionHookManager(HookManager):
         for layer in layers:
             attn = getattr(layer, architecture.attn_field, None)
             if attn is None:
+                _logger.warning(
+                    "Model architecture config did not resolve attention via %s; "
+                    "falling back to default attention attributes.",
+                    architecture.attn_field,
+                )
                 attn = getattr(layer, "self_attn", None) or getattr(layer, "attn", None)
             if attn is None:
                 continue
