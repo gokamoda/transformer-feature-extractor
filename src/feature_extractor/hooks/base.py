@@ -204,6 +204,15 @@ class HookManager:
         model: nn.Module,
         architecture: BaseModelArchitecture | None = None,
     ) -> None:
+        """Initialize the hook manager.
+
+        Parameters
+        ----------
+        model : nn.Module
+            Model instance that owns the hooked modules.
+        architecture : BaseModelArchitecture | None
+            Optional architecture metadata; when None, defaults are used.
+        """
         self._model = model
         self._architecture = architecture or BaseModelArchitecture()
         self._hooks: list[Hook] = []

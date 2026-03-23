@@ -21,6 +21,7 @@ from feature_extractor.hooks.results import (
     LayerFeatures,
     MLPFeatures,
 )
+from feature_extractor.models.architecture import BaseModelArchitecture
 from feature_extractor.models.load import load_causal_model, load_tokenizer
 
 _RESIDUAL_FEATURE_RE = re.compile(r"residual\.layer_(\d+)\.(pre_attn|post_ffn)")
@@ -72,11 +73,13 @@ class BaseFeatureExtractor:
         self,
         model_name_or_path: str,
         feature_cfg: FeatureConfig,
+        architecture: BaseModelArchitecture | None = None,
     ) -> None:
         self.model = load_causal_model(model_name_or_path)
         self.tokenizer = load_tokenizer(model_name_or_path)
         self.device = self._resolve_device()
         self.feature_cfg = feature_cfg
+        self.architecture = architecture or BaseModelArchitecture()
 
     def register_hooks(self):
         # For this basic implementation, we don't need to register any hooks
@@ -92,17 +95,25 @@ class BaseFeatureExtractor:
         attention_hooks: AttentionHookManager | None = None
         hook_managers: list[HookManager] = []
         if feature_plan.needs_qkv:
-            attention_hooks = AttentionHookManager(self.model)
+            attention_hooks = AttentionHookManager(
+                self.model, architecture=self.architecture
+            )
             attention_hooks.install()
             hook_managers.append(attention_hooks)
         mlp_hooks = (
-            MLPHookManager(self.model) if feature_plan.sorted_mlp_layers else None
+            MLPHookManager(self.model, architecture=self.architecture)
+            if feature_plan.sorted_mlp_layers
+            else None
         )
         residual_hooks = (
-            ResidualHookManager(self.model) if feature_plan.sorted_layers else None
+            ResidualHookManager(self.model, architecture=self.architecture)
+            if feature_plan.sorted_layers
+            else None
         )
         norm_hooks = (
-            NormHookManager(self.model) if feature_plan.sorted_layers else None
+            NormHookManager(self.model, architecture=self.architecture)
+            if feature_plan.sorted_layers
+            else None
         )
         for manager in (mlp_hooks, residual_hooks, norm_hooks):
             if manager is not None:
