@@ -425,7 +425,7 @@ class BaseFeatureExtractor:
         attention_hooks: AttentionHookManager | None,
         layer_idx: int,
         sample_index: int,
-        qk_logits: torch.Tensor | None,
+        existing_qk_logits: torch.Tensor | None,
     ) -> tuple[
         torch.Tensor | None,
         torch.Tensor | None,
@@ -440,7 +440,7 @@ class BaseFeatureExtractor:
             Layer index for projection lookup.
         sample_index : int
             Batch index for selecting a single sample.
-        qk_logits : torch.Tensor | None
+        existing_qk_logits : torch.Tensor | None
             Precomputed qk logits for reuse.
 
         Returns
@@ -454,7 +454,8 @@ class BaseFeatureExtractor:
                 "for layer %d.",
                 layer_idx,
             )
-            return None, qk_logits
+            return None, existing_qk_logits
+        qk_logits = existing_qk_logits
         if qk_logits is None:
             qk_logits = attention_hooks.qk_logits(layer_idx, sample_index)
         if qk_logits is not None:
