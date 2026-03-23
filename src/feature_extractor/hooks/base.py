@@ -218,7 +218,10 @@ class HookManager:
         self._hooks: list[Hook] = []
 
     def install(self) -> None:
-        """Install hooks (no-op by default)."""
+        """Install hooks (no-op by default).
+
+        Subclasses should override this to register their specific hooks.
+        """
 
     def reset(self) -> None:
         """Reset any cached hook state."""
