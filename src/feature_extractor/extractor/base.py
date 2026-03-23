@@ -108,20 +108,22 @@ class BaseFeatureExtractor:
                     )
                     raise ValueError(msg)
                 missing_attentions = attentions is None
-                is_sequence = _is_proper_sequence(attentions)
-                if is_sequence:
-                    if len(attentions) == 0:
+                is_sequence = False
+                if attentions is not None:
+                    if _is_proper_sequence(attentions):
+                        if len(attentions) == 0:
+                            missing_attentions = True
+                            attentions = None
+                        else:
+                            is_sequence = True
+                    else:
+                        _logger.warning(
+                            "Model returned attention weights in unsupported format "
+                            f"{type(attentions)}; returning None for attention weight "
+                            "features."
+                        )
                         missing_attentions = True
                         attentions = None
-                        is_sequence = False
-                elif attentions is not None:
-                    _logger.warning(
-                        "Model returned attention weights in unsupported format "
-                        f"{type(attentions)}; returning None for attention weight "
-                        "features."
-                    )
-                    missing_attentions = True
-                    attentions = None
                 if feature_plan.needs_attentions and missing_attentions:
                     _logger.warning(
                         "Model did not return attention weights; returning None "
