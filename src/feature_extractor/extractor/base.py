@@ -47,7 +47,8 @@ def _normalize_attentions(attentions: object) -> tuple[object | None, bool]:
     Returns
     -------
     tuple
-        (normalized attentions or None, is_sequence flag).
+        (normalized attentions or None, is_sequence flag). Returns None when the
+        model provides no attentions, an empty sequence, or an unsupported type.
     """
     is_sequence = False
     if attentions is not None:
