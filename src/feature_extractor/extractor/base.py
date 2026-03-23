@@ -27,6 +27,10 @@ _MAX_TENSOR_NESTING_DEPTH = 3
 _logger = logging.getLogger(__name__)
 
 
+def _is_proper_sequence(value: object) -> bool:
+    return isinstance(value, Sequence) and not isinstance(value, (str, bytes))
+
+
 class BaseFeatureExtractor:
     model: PreTrainedModel
     tokenizer: PreTrainedTokenizer
@@ -104,13 +108,12 @@ class BaseFeatureExtractor:
                     )
                     raise ValueError(msg)
                 missing_attentions = attentions is None
-                is_sequence = isinstance(attentions, Sequence) and not isinstance(
-                    attentions, (str, bytes)
-                )
+                is_sequence = _is_proper_sequence(attentions)
                 if is_sequence:
                     if len(attentions) == 0:
                         missing_attentions = True
                         attentions = None
+                        is_sequence = False
                 elif attentions is not None:
                     _logger.warning(
                         "Model returned attention weights in unsupported format "
@@ -124,7 +127,7 @@ class BaseFeatureExtractor:
                         "Model did not return attention weights; returning None "
                         "for attention weight features."
                     )
-                if attentions is not None and is_sequence and len(attentions) != actual_num_layers:
+                if is_sequence and len(attentions) != actual_num_layers:
                     msg = (
                         "Model returned inconsistent attention lengths. "
                         f"Expected {actual_num_layers} attention tensors but got "
