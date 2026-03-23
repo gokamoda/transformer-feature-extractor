@@ -225,6 +225,11 @@ class HookManager:
     def validate_layer_count(self, expected_layer_count: int) -> None:
         """Validate hook count matches expected layers (no-op by default).
 
+        Parameters
+        ----------
+        expected_layer_count : int
+            Expected number of model layers to validate against.
+
         Subclasses should override this method when they install per-layer
         hooks and want to assert the hook count matches the model layers.
         """

@@ -203,12 +203,9 @@ class AttentionHookManager(HookManager):
         model_root = getattr(model, architecture.model_field, model)
         layers = getattr(model_root, architecture.layer_field, None)
         if layers is None:
-            _logger.warning(
-                "Model architecture config did not resolve layers via %s.%s; "
-                "falling back to default layer attributes. Please verify your "
-                "BaseModelArchitecture settings if you are using a custom architecture.",
-                architecture.model_field,
-                architecture.layer_field,
+            self._warn_architecture_fallback(
+                "layers",
+                f"{architecture.model_field}.{architecture.layer_field}",
             )
             if hasattr(model, "model") and hasattr(model.model, "layers"):
                 layers = model.model.layers
@@ -222,15 +219,13 @@ class AttentionHookManager(HookManager):
         q_modules: list[nn.Module] = []
         k_modules: list[nn.Module] = []
         v_modules: list[nn.Module] = []
+        warned_attn_fallback = False
         for layer in layers:
             attn = getattr(layer, architecture.attn_field, None)
             if attn is None:
-                _logger.warning(
-                    "Model architecture config did not resolve attention via %s; "
-                    "falling back to default attention attributes. Please verify your "
-                    "BaseModelArchitecture settings if you are using a custom architecture.",
-                    architecture.attn_field,
-                )
+                if not warned_attn_fallback:
+                    self._warn_architecture_fallback("attention", architecture.attn_field)
+                    warned_attn_fallback = True
                 attn = getattr(layer, "self_attn", None) or getattr(layer, "attn", None)
             if attn is None:
                 continue
@@ -240,6 +235,16 @@ class AttentionHookManager(HookManager):
             k_modules.append(attn.k_proj)
             v_modules.append(attn.v_proj)
         return (q_modules, k_modules, v_modules)
+
+    @staticmethod
+    def _warn_architecture_fallback(target: str, field: str) -> None:
+        _logger.warning(
+            "Model architecture config did not resolve %s via %s; falling back to "
+            "default attributes. Please verify your BaseModelArchitecture settings "
+            "if you are using a custom architecture.",
+            target,
+            field,
+        )
 
     def _resolve_attention_head_config(self) -> AttentionHeadConfig:
         config = getattr(self._model, "config", None)
