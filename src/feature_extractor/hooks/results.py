@@ -12,6 +12,7 @@ from feature_extractor.typing import (
 
 @dataclass
 class AttentionFeatures:
+    layer_index: int
     query: None | Tensor[HEAD, SEQUENCE, HEAD_DIM]
     key: None | Tensor[HEAD, SEQUENCE, HEAD_DIM] # gqa unfurled
     value: None | Tensor[HEAD, SEQUENCE, HEAD_DIM] # gqa unfurled
@@ -21,16 +22,19 @@ class AttentionFeatures:
 
 @dataclass
 class MLPFeatures:
+    layer_index: int
     activation: None | Tensor[SEQUENCE, MLP_DIM]
 
 
 @dataclass
 class NormFeatures:
+    layer_index: int
     input: None | Tensor[SEQUENCE, HIDDEN_DIM]
     output: None | Tensor[SEQUENCE, HIDDEN_DIM]
 
 @dataclass
 class LayerFeatures:
+    layer_index: int
     input: None | Tensor[SEQUENCE, HIDDEN_DIM]
     attn_output: None | Tensor[SEQUENCE, HIDDEN_DIM]
     mlp_output: None | Tensor[SEQUENCE, HIDDEN_DIM]
@@ -42,7 +46,6 @@ class ExtractorResult:
     layer_features: list[LayerFeatures]
     attention_features: list[AttentionFeatures]
     mlp_features: list[MLPFeatures]
-
 
 
 

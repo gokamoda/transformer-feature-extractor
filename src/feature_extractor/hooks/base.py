@@ -6,6 +6,7 @@ from torch import nn
 from torch.utils.hooks import RemovableHandle
 
 from utils.logger import init_logging
+from feature_extractor.models.architecture import BaseModelArchitecture
 
 logger = init_logging(__name__)
 
@@ -193,3 +194,33 @@ class Hook:
         finally:
             for hook in hooks:
                 hook.remove()
+
+
+class HookManager:
+    """Base class for managing multiple hooks for a model component."""
+
+    def __init__(
+        self,
+        model: nn.Module,
+        architecture: BaseModelArchitecture | None = None,
+    ) -> None:
+        self._model = model
+        self._architecture = architecture or BaseModelArchitecture()
+        self._hooks: list[Hook] = []
+
+    def install(self) -> None:
+        """Install hooks (no-op by default)."""
+
+    def reset(self) -> None:
+        """Reset any cached hook state."""
+        for hook in self._hooks:
+            hook.result = None
+
+    def remove(self) -> None:
+        """Remove registered hooks."""
+        for hook in self._hooks:
+            hook.remove()
+        self._hooks.clear()
+
+    def validate_layer_count(self, _expected: int) -> None:
+        """Validate hook count matches expected layers (no-op by default)."""

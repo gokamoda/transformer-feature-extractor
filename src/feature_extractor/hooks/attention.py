@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
+from feature_extractor.hooks.base import HookManager
+from feature_extractor.models.architecture import BaseModelArchitecture
 
 @dataclass(frozen=True)
 class AttentionHeadConfig:
@@ -98,16 +100,20 @@ class AttentionProjectionCache:
             raise ValueError(msg)
 
 
-class AttentionHookManager:
+class AttentionHookManager(HookManager):
     """Manage attention hooks and reshape captured projections.
 
     Use ``install()`` once before inference, then call ``reset()`` per batch.
     Access per-layer projections via ``query()``, ``key()``, and ``value()``, and
     compute logits with ``qk_logits()``. Use ``remove()`` to clean up hooks.
     """
-    def __init__(self, model: nn.Module) -> None:
+    def __init__(
+        self,
+        model: nn.Module,
+        architecture: BaseModelArchitecture | None = None,
+    ) -> None:
         """Initialize the manager for the provided model."""
-        self._model = model
+        super().__init__(model, architecture)
         self.projection_cache: AttentionProjectionCache | None = None
         self.head_config: AttentionHeadConfig | None = None
 
@@ -191,12 +197,16 @@ class AttentionHookManager:
     ) -> tuple[list[nn.Module], list[nn.Module], list[nn.Module]]:
         model = self._model
         layers = None
-        if hasattr(model, "model") and hasattr(model.model, "layers"):
-            layers = model.model.layers
-        elif hasattr(model, "layers"):
-            layers = model.layers
-        elif hasattr(model, "transformer") and hasattr(model.transformer, "h"):
-            layers = model.transformer.h
+        architecture = self._architecture
+        model_root = getattr(model, architecture.model_field, model)
+        layers = getattr(model_root, architecture.layer_field, None)
+        if layers is None:
+            if hasattr(model, "model") and hasattr(model.model, "layers"):
+                layers = model.model.layers
+            elif hasattr(model, "layers"):
+                layers = model.layers
+            elif hasattr(model, "transformer") and hasattr(model.transformer, "h"):
+                layers = model.transformer.h
         if layers is None:
             return ([], [], [])
 
@@ -204,7 +214,9 @@ class AttentionHookManager:
         k_modules: list[nn.Module] = []
         v_modules: list[nn.Module] = []
         for layer in layers:
-            attn = getattr(layer, "self_attn", None) or getattr(layer, "attn", None)
+            attn = getattr(layer, architecture.attn_field, None)
+            if attn is None:
+                attn = getattr(layer, "self_attn", None) or getattr(layer, "attn", None)
             if attn is None:
                 continue
             if not all(hasattr(attn, name) for name in ("q_proj", "k_proj", "v_proj")):

@@ -171,6 +171,8 @@ def test_extract_features_embeddings_and_residual(monkeypatch):
     assert model.extra_keys == ()
     assert results[0].embeddings.shape == (3, 4)
     assert len(results[0].layer_features) == 2
+    assert results[0].layer_features[0].layer_index == 0
+    assert results[0].layer_features[1].layer_index == 1
     assert results[0].layer_features[0].input is not None
     assert results[0].layer_features[0].output is None
     assert results[0].layer_features[1].input is None
@@ -250,6 +252,7 @@ def test_extract_features_layer_outputs(monkeypatch):
 
     assert len(results) == 1
     assert len(results[0].layer_features) == 1
+    assert results[0].layer_features[0].layer_index == 0
     assert results[0].layer_features[0].mlp_output is not None
     assert results[0].layer_features[0].output is not None
 
@@ -288,6 +291,7 @@ def test_extract_features_with_attention_weights(monkeypatch):
     assert len(results) == 1
     assert model.last_output_attentions is True
     assert len(results[0].attention_features) == 1
+    assert results[0].attention_features[0].layer_index == 0
     assert results[0].attention_features[0].attn_weights.shape == (1, 3, 3)
 
 
@@ -321,6 +325,7 @@ def test_extract_features_with_qkv_gqa(monkeypatch):
     assert len(results) == 1
     assert len(results[0].attention_features) == 1
     features = results[0].attention_features[0]
+    assert features.layer_index == 0
     assert features.query.shape == (2, 3, 2)
     assert features.key.shape == (2, 3, 2)
     assert features.value.shape == (2, 3, 2)

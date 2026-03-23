@@ -1,3 +1,4 @@
+from .architecture import BaseModelArchitecture
 from .load import load_causal_model, load_tokenizer
 
 SUPPORTED_MODELS = [
@@ -6,4 +7,9 @@ SUPPORTED_MODELS = [
     "meta-llama/Llama-3.2-1B"
 ]
 
-__all__ = ["load_causal_model", "load_tokenizer", "SUPPORTED_MODELS"]
+__all__ = [
+    "BaseModelArchitecture",
+    "load_causal_model",
+    "load_tokenizer",
+    "SUPPORTED_MODELS",
+]

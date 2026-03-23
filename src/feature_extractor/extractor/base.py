@@ -11,6 +11,10 @@ from transformers import PreTrainedModel, PreTrainedTokenizer
 
 from feature_extractor.configs.schema import FeatureConfig
 from feature_extractor.hooks.attention import AttentionHookManager
+from feature_extractor.hooks.base import HookManager
+from feature_extractor.hooks.mlp import MLPHookManager
+from feature_extractor.hooks.norm import NormHookManager
+from feature_extractor.hooks.residual import ResidualHookManager
 from feature_extractor.hooks.results import (
     AttentionFeatures,
     ExtractorResult,
@@ -86,15 +90,28 @@ class BaseFeatureExtractor:
         feature_plan = self._parse_feature_names()
         expected_num_layers: int | None = None
         attention_hooks: AttentionHookManager | None = None
+        hook_managers: list[HookManager] = []
         if feature_plan.needs_qkv:
             attention_hooks = AttentionHookManager(self.model)
             attention_hooks.install()
+            hook_managers.append(attention_hooks)
+        mlp_hooks = (
+            MLPHookManager(self.model) if feature_plan.sorted_mlp_layers else None
+        )
+        residual_hooks = (
+            ResidualHookManager(self.model) if feature_plan.sorted_layers else None
+        )
+        norm_hooks = NormHookManager(self.model) if feature_plan.sorted_layers else None
+        for manager in (mlp_hooks, residual_hooks, norm_hooks):
+            if manager is not None:
+                manager.install()
+                hook_managers.append(manager)
 
         self.model.eval()
         try:
             for batch in data_loader:
-                if attention_hooks is not None:
-                    attention_hooks.reset()
+                for manager in hook_managers:
+                    manager.reset()
                 inputs = self._prepare_batch(batch)
                 input_keys = sorted(inputs.keys())
                 model_inputs = {
@@ -145,8 +162,8 @@ class BaseFeatureExtractor:
                         f"{len(attentions)}."
                     )
                     raise ValueError(msg)
-                if attention_hooks is not None:
-                    attention_hooks.validate_layer_count(actual_num_layers)
+                for manager in hook_managers:
+                    manager.validate_layer_count(actual_num_layers)
 
                 batch_size = hidden_states[0].shape[0]
                 for idx in range(batch_size):
@@ -174,8 +191,8 @@ class BaseFeatureExtractor:
                         )
                     )
         finally:
-            if attention_hooks is not None:
-                attention_hooks.remove()
+            for manager in hook_managers:
+                manager.remove()
 
 
     def _prepare_batch(self, batch: Any) -> dict[str, Any]:
@@ -294,6 +311,7 @@ class BaseFeatureExtractor:
             )
             layer_features.append(
                 LayerFeatures(
+                    layer_index=layer_idx,
                     input=input_tensor,
                     attn_output=None,
                     mlp_output=mlp_output,
@@ -348,6 +366,7 @@ class BaseFeatureExtractor:
             )
             attention_features.append(
                 AttentionFeatures(
+                    layer_index=layer_idx,
                     query=query,
                     key=key,
                     value=value,
@@ -358,7 +377,10 @@ class BaseFeatureExtractor:
         return attention_features
 
     def _build_mlp_features(self, feature_plan: _FeaturePlan) -> list[MLPFeatures]:
-        return [MLPFeatures(activation=None) for _ in feature_plan.sorted_mlp_layers]
+        return [
+            MLPFeatures(layer_index=layer_idx, activation=None)
+            for layer_idx in feature_plan.sorted_mlp_layers
+        ]
 
     def _parse_feature_names(self) -> _FeaturePlan:
         include_embeddings = False
