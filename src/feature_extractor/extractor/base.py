@@ -407,11 +407,19 @@ class BaseFeatureExtractor:
                         layer_idx,
                         sample_index,
                     )
+                    if weights is None:
+                        _logger.warning(
+                            "Attention weights requested but unavailable from hooks "
+                            "for layer %d. Ensure attention modules expose "
+                            "attention_weights/attn_weights/attn_probs or enable "
+                            "output_attentions.",
+                            layer_idx,
+                        )
                 else:
                     _logger.warning(
-                        "Attention weights requested but the model did not return "
-                        "attentions and attention hooks are unavailable for layer %d. "
-                        "Enable output_attentions or install attention hooks.",
+                        "Attention weights requested but both model attentions and "
+                        "attention hooks are unavailable for layer %d. Enable "
+                        "output_attentions or install attention hooks.",
                         layer_idx,
                     )
             attention_features.append(
@@ -455,13 +463,6 @@ class BaseFeatureExtractor:
             )
             return None
         weights = attention_hooks.attn_weights(layer_idx, sample_index)
-        if weights is None:
-            _logger.warning(
-                "Attention weights requested but unavailable from hooks for layer %d. "
-                "Ensure attention modules expose attention_weights/attn_weights/"
-                "attn_probs or enable output_attentions.",
-                layer_idx,
-            )
         return weights
 
     def _build_mlp_features(
