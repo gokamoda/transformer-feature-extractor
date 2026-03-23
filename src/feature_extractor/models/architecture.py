@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
+
+_logger = logging.getLogger(__name__)
 
 MLP_IMPLEMENTATION_STANDARD = "standard"
 MLP_IMPLEMENTATION_GATED = "gated"
@@ -64,8 +67,9 @@ def get_model_architecture(architecture_name: str) -> BaseModelArchitecture:
         if architecture_name.startswith(prefix):
             return prefix_factory()
 
-    msg = (
-        f"Unsupported architecture: {architecture_name}. "
-        f"Known architectures: {sorted(_ARCHITECTURE_REGISTRY)}"
+    _logger.warning(
+        "Unknown model architecture %r; falling back to default BaseModelArchitecture. "
+        "Register the model in _ARCHITECTURE_REGISTRY for reliable hook resolution.",
+        architecture_name,
     )
-    raise ValueError(msg)
+    return BaseModelArchitecture()
