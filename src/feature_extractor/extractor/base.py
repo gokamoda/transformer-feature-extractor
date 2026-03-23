@@ -102,9 +102,14 @@ class BaseFeatureExtractor:
                         f"{len(hidden_states)}."
                     )
                     raise ValueError(msg)
-                if feature_plan.needs_attentions and attentions is None:
-                    msg = "Model did not return attention weights."
-                    raise ValueError(msg)
+                if feature_plan.needs_attentions and (
+                    attentions is None or len(attentions) == 0
+                ):
+                    _logger.warning(
+                        "Model did not return attention weights; returning None "
+                        "for attention weight features."
+                    )
+                    attentions = None
                 if attentions is not None and len(attentions) != actual_num_layers:
                     msg = (
                         "Model returned inconsistent attention lengths. "
@@ -499,4 +504,3 @@ class _FeaturePlan:
             or self.attn_value_layers
             or self.attn_qk_logits_layers
         )
-
