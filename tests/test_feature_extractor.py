@@ -61,7 +61,7 @@ class DummyModel(nn.Module):
             attn = torch.ones(
                 (batch_size, 1, seq_len, seq_len), dtype=hidden.dtype
             )
-            attentions = tuple(attn for _ in self.layers)
+            attentions = tuple(attn.clone() for _ in self.layers)
         return SimpleNamespace(hidden_states=tuple(hidden_states), attentions=attentions)
 
 

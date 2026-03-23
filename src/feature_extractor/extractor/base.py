@@ -289,35 +289,38 @@ class BaseFeatureExtractor:
                         "Attention query/key/value features require projection hooks."
                     )
                     raise ValueError(msg)
-                query = self._prepare_attention_projection(
-                    projection_cache.q_outputs,
-                    layer_idx,
-                    head_config.num_heads,
-                    head_config.head_dim,
-                    sample_index,
-                ) if (
+                if (
                     layer_idx in feature_plan.attn_query_layers
                     or layer_idx in feature_plan.attn_qk_logits_layers
-                ) else None
-                key = self._prepare_attention_projection(
-                    projection_cache.k_outputs,
-                    layer_idx,
-                    head_config.num_key_value_heads,
-                    head_config.head_dim,
-                    sample_index,
-                    num_attention_heads=head_config.num_heads,
-                ) if (
+                ):
+                    query = self._prepare_attention_projection(
+                        projection_cache.q_outputs,
+                        layer_idx,
+                        head_config.num_heads,
+                        head_config.head_dim,
+                        sample_index,
+                    )
+                if (
                     layer_idx in feature_plan.attn_key_layers
                     or layer_idx in feature_plan.attn_qk_logits_layers
-                ) else None
-                value = self._prepare_attention_projection(
-                    projection_cache.v_outputs,
-                    layer_idx,
-                    head_config.num_key_value_heads,
-                    head_config.head_dim,
-                    sample_index,
-                    num_attention_heads=head_config.num_heads,
-                ) if layer_idx in feature_plan.attn_value_layers else None
+                ):
+                    key = self._prepare_attention_projection(
+                        projection_cache.k_outputs,
+                        layer_idx,
+                        head_config.num_key_value_heads,
+                        head_config.head_dim,
+                        sample_index,
+                        num_attention_heads=head_config.num_heads,
+                    )
+                if layer_idx in feature_plan.attn_value_layers:
+                    value = self._prepare_attention_projection(
+                        projection_cache.v_outputs,
+                        layer_idx,
+                        head_config.num_key_value_heads,
+                        head_config.head_dim,
+                        sample_index,
+                        num_attention_heads=head_config.num_heads,
+                    )
                 if layer_idx in feature_plan.attn_qk_logits_layers:
                     if query is None or key is None:
                         msg = (
