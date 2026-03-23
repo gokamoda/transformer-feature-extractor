@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import math
 import re
 from typing import Any, Generator
 
@@ -10,6 +9,7 @@ from torch.utils.data import DataLoader
 from transformers import PreTrainedModel, PreTrainedTokenizer
 
 from feature_extractor.configs.schema import FeatureConfig
+from feature_extractor.hooks.attention import AttentionHookManager
 from feature_extractor.hooks.results import (
     AttentionFeatures,
     ExtractorResult,
@@ -52,17 +52,16 @@ class BaseFeatureExtractor:
     ) -> Generator[ExtractorResult, None, None]:
         feature_plan = self._parse_feature_names()
         expected_num_layers: int | None = None
-        projection_cache: _AttentionProjectionCache | None = None
-        head_config: _AttentionHeadConfig | None = None
+        attention_hooks: AttentionHookManager | None = None
         if feature_plan.needs_qkv:
-            projection_cache = self._install_qkv_hooks()
-            head_config = self._resolve_attention_head_config()
+            attention_hooks = AttentionHookManager(self.model)
+            attention_hooks.install()
 
         self.model.eval()
         try:
             for batch in data_loader:
-                if projection_cache is not None:
-                    projection_cache.reset()
+                if attention_hooks is not None:
+                    attention_hooks.reset()
                 inputs = self._prepare_batch(batch)
                 input_keys = sorted(inputs.keys())
                 model_inputs = {
@@ -113,8 +112,8 @@ class BaseFeatureExtractor:
                         f"{len(attentions)}."
                     )
                     raise ValueError(msg)
-                if projection_cache is not None:
-                    projection_cache.validate_layer_count(actual_num_layers)
+                if attention_hooks is not None:
+                    attention_hooks.validate_layer_count(actual_num_layers)
 
                 batch_size = hidden_states[0].shape[0]
                 for idx in range(batch_size):
@@ -128,8 +127,7 @@ class BaseFeatureExtractor:
                     )
                     attention_features = self._build_attention_features(
                         attentions,
-                        projection_cache,
-                        head_config,
+                        attention_hooks,
                         idx,
                         feature_plan,
                     )
@@ -143,8 +141,8 @@ class BaseFeatureExtractor:
                         )
                     )
         finally:
-            if projection_cache is not None:
-                projection_cache.remove()
+            if attention_hooks is not None:
+                attention_hooks.remove()
 
 
     def _prepare_batch(self, batch: Any) -> dict[str, Any]:
@@ -274,8 +272,7 @@ class BaseFeatureExtractor:
     def _build_attention_features(
         self,
         attentions: tuple[torch.Tensor, ...] | None,
-        projection_cache: _AttentionProjectionCache | None,
-        head_config: _AttentionHeadConfig | None,
+        attention_hooks: AttentionHookManager | None,
         sample_index: int,
         feature_plan: _FeaturePlan,
     ) -> list[AttentionFeatures]:
@@ -286,7 +283,7 @@ class BaseFeatureExtractor:
             value = None
             qk_logits = None
             if feature_plan.needs_qkv:
-                if projection_cache is None or head_config is None:
+                if attention_hooks is None:
                     msg = (
                         "Attention query/key/value features require projection hooks."
                     )
@@ -295,44 +292,21 @@ class BaseFeatureExtractor:
                     layer_idx in feature_plan.attn_query_layers
                     or layer_idx in feature_plan.attn_qk_logits_layers
                 ):
-                    query = self._prepare_attention_projection(
-                        projection_cache.q_outputs,
-                        layer_idx,
-                        head_config.num_heads,
-                        head_config.head_dim,
-                        sample_index,
-                    )
+                    query = attention_hooks.query(layer_idx, sample_index)
                 if (
                     layer_idx in feature_plan.attn_key_layers
                     or layer_idx in feature_plan.attn_qk_logits_layers
                 ):
-                    key = self._prepare_attention_projection(
-                        projection_cache.k_outputs,
-                        layer_idx,
-                        head_config.num_key_value_heads,
-                        head_config.head_dim,
-                        sample_index,
-                        num_attention_heads=head_config.num_heads,
-                    )
+                    key = attention_hooks.key(layer_idx, sample_index)
                 if layer_idx in feature_plan.attn_value_layers:
-                    value = self._prepare_attention_projection(
-                        projection_cache.v_outputs,
-                        layer_idx,
-                        head_config.num_key_value_heads,
-                        head_config.head_dim,
-                        sample_index,
-                        num_attention_heads=head_config.num_heads,
-                    )
+                    value = attention_hooks.value(layer_idx, sample_index)
                 if layer_idx in feature_plan.attn_qk_logits_layers:
                     if query is None or key is None:
                         msg = (
                             "Attention qk_logits requested but projections were missing."
                         )
                         raise ValueError(msg)
-                    scaling_factor = 1.0 / math.sqrt(head_config.head_dim)
-                    qk_logits = torch.matmul(
-                        query, key.transpose(-2, -1)
-                    ) * scaling_factor
+                    qk_logits = attention_hooks.qk_logits(query, key)
             weights = (
                 attentions[layer_idx][sample_index].detach().cpu()
                 if attentions is not None
@@ -352,116 +326,6 @@ class BaseFeatureExtractor:
 
     def _build_mlp_features(self, feature_plan: _FeaturePlan) -> list[MLPFeatures]:
         return [MLPFeatures(activation=None) for _ in feature_plan.sorted_mlp_layers]
-
-    def _install_qkv_hooks(self) -> _AttentionProjectionCache:
-        q_modules, k_modules, v_modules = self._resolve_qkv_modules()
-        if not q_modules:
-            msg = "Model does not expose q/k/v projection modules."
-            raise ValueError(msg)
-        return _AttentionProjectionCache(q_modules, k_modules, v_modules)
-
-    def _resolve_qkv_modules(
-        self,
-    ) -> tuple[list[torch.nn.Module], list[torch.nn.Module], list[torch.nn.Module]]:
-        model = self.model
-        layers = None
-        if hasattr(model, "model") and hasattr(model.model, "layers"):
-            layers = model.model.layers
-        elif hasattr(model, "layers"):
-            layers = model.layers
-        elif hasattr(model, "transformer") and hasattr(model.transformer, "h"):
-            layers = model.transformer.h
-        if layers is None:
-            return ([], [], [])
-
-        q_modules: list[torch.nn.Module] = []
-        k_modules: list[torch.nn.Module] = []
-        v_modules: list[torch.nn.Module] = []
-        for layer in layers:
-            attn = getattr(layer, "self_attn", None) or getattr(layer, "attn", None)
-            if attn is None:
-                continue
-            if not all(hasattr(attn, name) for name in ("q_proj", "k_proj", "v_proj")):
-                continue
-            q_modules.append(attn.q_proj)
-            k_modules.append(attn.k_proj)
-            v_modules.append(attn.v_proj)
-        return (q_modules, k_modules, v_modules)
-
-    def _resolve_attention_head_config(self) -> _AttentionHeadConfig:
-        config = getattr(self.model, "config", None)
-        if config is None:
-            msg = "Model config is required for attention head configuration."
-            raise ValueError(msg)
-        num_heads = getattr(config, "num_attention_heads", None)
-        if num_heads is None:
-            num_heads = getattr(config, "n_head", None)
-        if num_heads is None:
-            msg = "Model config is missing num_attention_heads."
-            raise ValueError(msg)
-        num_key_value_heads = getattr(config, "num_key_value_heads", num_heads)
-        head_dim = getattr(config, "head_dim", None)
-        if head_dim is None:
-            hidden_size = getattr(config, "hidden_size", None)
-            if hidden_size is None:
-                hidden_size = getattr(config, "n_embd", None)
-            if hidden_size is None:
-                msg = "Model config is missing hidden_size."
-                raise ValueError(msg)
-            head_dim = hidden_size // num_heads
-        if num_heads % num_key_value_heads != 0:
-            msg = (
-                "num_attention_heads must be divisible by num_key_value_heads "
-                f"(got {num_heads} and {num_key_value_heads})."
-            )
-            raise ValueError(msg)
-        return _AttentionHeadConfig(
-            num_heads=num_heads,
-            num_key_value_heads=num_key_value_heads,
-            head_dim=head_dim,
-        )
-
-    def _prepare_attention_projection(
-        self,
-        projections: list[torch.Tensor | None],
-        layer_idx: int,
-        projection_heads: int,
-        head_dim: int,
-        sample_index: int,
-        num_attention_heads: int | None = None,
-    ) -> torch.Tensor:
-        projection = projections[layer_idx]
-        if projection is None:
-            msg = f"Missing attention projection output for layer {layer_idx}."
-            raise ValueError(msg)
-        if projection.dim() != 3:
-            msg = (
-                "Attention projection must be a 3D tensor "
-                f"(got shape {tuple(projection.shape)})."
-            )
-            raise ValueError(msg)
-        batch_size, seq_len, hidden_dim = projection.shape
-        expected_hidden = projection_heads * head_dim
-        if hidden_dim != expected_hidden:
-            msg = (
-                "Attention projection hidden size mismatch "
-                f"(expected {expected_hidden}, got {hidden_dim})."
-            )
-            raise ValueError(msg)
-        projection = projection.view(batch_size, seq_len, projection_heads, head_dim)
-        # (batch, seq, heads, head_dim) -> (batch, heads, seq, head_dim)
-        projection = projection.transpose(1, 2)
-        if num_attention_heads is not None and projection_heads != num_attention_heads:
-            if num_attention_heads % projection_heads != 0:
-                msg = (
-                    "Cannot expand GQA heads "
-                    f"(num_attention_heads={num_attention_heads}, "
-                    f"num_key_value_heads={projection_heads})."
-                )
-                raise ValueError(msg)
-            head_expansion_factor = num_attention_heads // projection_heads
-            projection = projection.repeat_interleave(head_expansion_factor, dim=1)
-        return projection[sample_index].detach().cpu()
 
     def _parse_feature_names(self) -> _FeaturePlan:
         include_embeddings = False
@@ -636,77 +500,3 @@ class _FeaturePlan:
             or self.attn_qk_logits_layers
         )
 
-
-class _AttentionHeadConfig:
-    def __init__(
-        self,
-        *,
-        num_heads: int,
-        num_key_value_heads: int,
-        head_dim: int,
-    ) -> None:
-        self.num_heads = num_heads
-        self.num_key_value_heads = num_key_value_heads
-        self.head_dim = head_dim
-
-
-class _AttentionProjectionCache:
-    def __init__(
-        self,
-        q_projections: list[torch.nn.Module],
-        k_projections: list[torch.nn.Module],
-        v_projections: list[torch.nn.Module],
-    ) -> None:
-        self.q_outputs: list[torch.Tensor | None] = [None] * len(q_projections)
-        self.k_outputs: list[torch.Tensor | None] = [None] * len(k_projections)
-        self.v_outputs: list[torch.Tensor | None] = [None] * len(v_projections)
-        self._hooks = []
-        for idx, module in enumerate(q_projections):
-            self._hooks.append(
-                module.register_forward_hook(
-                    self._make_store_hook(self.q_outputs, idx)
-                )
-            )
-        for idx, module in enumerate(k_projections):
-            self._hooks.append(
-                module.register_forward_hook(
-                    self._make_store_hook(self.k_outputs, idx)
-                )
-            )
-        for idx, module in enumerate(v_projections):
-            self._hooks.append(
-                module.register_forward_hook(
-                    self._make_store_hook(self.v_outputs, idx)
-                )
-            )
-
-    @staticmethod
-    def _make_store_hook(storage: list[torch.Tensor | None], index: int):
-        def hook(_module, _inputs, output):
-            if not isinstance(output, torch.Tensor):
-                msg = (
-                    "Attention projection hook expected a Tensor output "
-                    f"but received {type(output)}."
-                )
-                raise TypeError(msg)
-            storage[index] = output.detach()
-
-        return hook
-
-    def reset(self) -> None:
-        for storage in (self.q_outputs, self.k_outputs, self.v_outputs):
-            for idx in range(len(storage)):
-                storage[idx] = None
-
-    def remove(self) -> None:
-        for hook in self._hooks:
-            hook.remove()
-
-    def validate_layer_count(self, expected: int) -> None:
-        actual = len(self.q_outputs)
-        if actual != expected:
-            msg = (
-                "Attention projection hooks do not match model layer count. "
-                f"Expected {expected} layers but found {actual}."
-            )
-            raise ValueError(msg)
