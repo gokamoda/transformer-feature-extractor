@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from typing import Literal
 
+MLP_IMPLEMENTATION_STANDARD = "standard"
+MLP_IMPLEMENTATION_GATED = "gated"
+
 
 @dataclass(frozen=True)
 class BaseModelArchitecture:
@@ -11,7 +14,7 @@ class BaseModelArchitecture:
     attn_field: str = "attn"
     mlp_field: str = "mlp"
     qkv_implementation: Literal["conv1d", "independent_linear"] = "independent_linear"
-    mlp_implementation: Literal["standard", "gated"] = "standard"
+    mlp_implementation: Literal["standard", "gated"] = MLP_IMPLEMENTATION_STANDARD
 
 class LlamaForCausalLMArchitecture(BaseModelArchitecture):
     model_field: str = "model"
@@ -19,7 +22,7 @@ class LlamaForCausalLMArchitecture(BaseModelArchitecture):
     attn_field: str = "self_attn"
     mlp_field: str = "mlp"
     qkv_implementation: Literal["conv1d", "independent_linear"] = "independent_linear"
-    mlp_implementation: Literal["standard", "gated"] = "standard"
+    mlp_implementation: Literal["standard", "gated"] = MLP_IMPLEMENTATION_STANDARD
 
 
 def get_model_architecture(architecture_name: str) -> BaseModelArchitecture:

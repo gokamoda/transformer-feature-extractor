@@ -381,26 +381,19 @@ class BaseFeatureExtractor:
             if layer_idx in feature_plan.attn_weights_layers:
                 if attentions is not None:
                     weights = attentions[layer_idx][sample_index].detach().cpu()
-                elif attention_hooks is not None:
-                    if query is None:
-                        query = attention_hooks.query(layer_idx, sample_index)
-                    if key is None:
-                        key = attention_hooks.key(layer_idx, sample_index)
-                    if query is not None and key is not None:
-                        if qk_logits is None:
-                            qk_logits = attention_hooks.qk_logits(query, key)
-                        weights = torch.softmax(qk_logits, dim=-1)
-                    else:
-                        _logger.warning(
-                            "Attention weights requested but projections were missing "
-                            "for layer %d.",
-                            layer_idx,
-                        )
                 else:
-                    _logger.warning(
-                        "Attention weights requested but attention hooks were unavailable "
-                        "for layer %d.",
+                    (
+                        weights,
+                        qk_logits,
+                        query,
+                        key,
+                    ) = self._compute_attention_weights_fallback(
+                        attention_hooks,
                         layer_idx,
+                        sample_index,
+                        query,
+                        key,
+                        qk_logits,
                     )
             attention_features.append(
                 AttentionFeatures(
@@ -411,8 +404,44 @@ class BaseFeatureExtractor:
                     qk_logits=qk_logits,
                     attn_weights=weights,
                 )
-        )
+            )
         return attention_features
+
+    def _compute_attention_weights_fallback(
+        self,
+        attention_hooks: AttentionHookManager | None,
+        layer_idx: int,
+        sample_index: int,
+        query: torch.Tensor | None,
+        key: torch.Tensor | None,
+        qk_logits: torch.Tensor | None,
+    ) -> tuple[
+        torch.Tensor | None,
+        torch.Tensor | None,
+        torch.Tensor | None,
+        torch.Tensor | None,
+    ]:
+        if attention_hooks is None:
+            _logger.warning(
+                "Attention weights requested but attention hooks were unavailable "
+                "for layer %d.",
+                layer_idx,
+            )
+            return None, qk_logits, query, key
+        if query is None:
+            query = attention_hooks.query(layer_idx, sample_index)
+        if key is None:
+            key = attention_hooks.key(layer_idx, sample_index)
+        if query is not None and key is not None:
+            if qk_logits is None:
+                qk_logits = attention_hooks.qk_logits(query, key)
+            weights = torch.softmax(qk_logits, dim=-1)
+            return weights, qk_logits, query, key
+        _logger.warning(
+            "Attention weights requested but projections were missing for layer %d.",
+            layer_idx,
+        )
+        return None, qk_logits, query, key
 
     def _build_mlp_features(
         self,

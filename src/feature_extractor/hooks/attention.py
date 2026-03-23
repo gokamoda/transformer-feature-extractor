@@ -129,6 +129,12 @@ class AttentionHookManager(HookManager):
         required : bool
             When True, raise if q/k/v projections cannot be resolved. When False,
             return False if hooks could not be installed.
+
+        Returns
+        -------
+        bool
+            True when hooks were installed. Returns False only when required is False
+            and projections are unavailable. Raises ValueError when required is True.
         """
         q_modules, k_modules, v_modules = self._resolve_qkv_modules()
         if not q_modules:

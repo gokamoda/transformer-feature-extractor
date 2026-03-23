@@ -6,7 +6,10 @@ import torch
 from torch import nn
 
 from feature_extractor.hooks.base import HookManager
-from feature_extractor.models.architecture import BaseModelArchitecture
+from feature_extractor.models.architecture import (
+    BaseModelArchitecture,
+    MLP_IMPLEMENTATION_GATED,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -167,7 +170,7 @@ class MLPHookManager(HookManager):
         hidden_states = inputs[0] if inputs else None
         if not isinstance(hidden_states, torch.Tensor):
             return self._fallback_activation(output)
-        if self._architecture.mlp_implementation == "gated":
+        if self._architecture.mlp_implementation == MLP_IMPLEMENTATION_GATED:
             activation = self._compute_gated_activation(module, hidden_states)
             if activation is not None:
                 return activation

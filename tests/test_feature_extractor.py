@@ -10,6 +10,15 @@ from feature_extractor.configs.schema import FeatureConfig
 from feature_extractor.extractor.base import BaseFeatureExtractor
 
 
+def _patch_model_and_tokenizer(monkeypatch, model, tokenizer) -> None:
+    monkeypatch.setattr(
+        "feature_extractor.extractor.base.load_causal_model", lambda _: model
+    )
+    monkeypatch.setattr(
+        "feature_extractor.extractor.base.load_tokenizer", lambda _: tokenizer
+    )
+
+
 class DummyTokenizer:
     def __call__(self, texts, return_tensors=None, padding=None, truncation=None):
         max_len = max(len(text.split()) for text in texts)
@@ -203,12 +212,7 @@ def test_extract_features_embeddings_and_residual(monkeypatch):
     model = DummyModel(hidden_size=4, num_layers=2)
     tokenizer = DummyTokenizer()
 
-    monkeypatch.setattr(
-        "feature_extractor.extractor.base.load_causal_model", lambda _: model
-    )
-    monkeypatch.setattr(
-        "feature_extractor.extractor.base.load_tokenizer", lambda _: tokenizer
-    )
+    _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
 
     feature_cfg = FeatureConfig(
         feature_names=[
@@ -255,12 +259,7 @@ def test_extract_features_with_attention_mask(monkeypatch):
     model = DummyModel(hidden_size=4, num_layers=1)
     tokenizer = DummyTokenizer()
 
-    monkeypatch.setattr(
-        "feature_extractor.extractor.base.load_causal_model", lambda _: model
-    )
-    monkeypatch.setattr(
-        "feature_extractor.extractor.base.load_tokenizer", lambda _: tokenizer
-    )
+    _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
 
     feature_cfg = FeatureConfig(feature_names=["embeddings"])
     extractor = BaseFeatureExtractor("dummy", feature_cfg)
@@ -291,12 +290,7 @@ def test_extract_features_layer_outputs(monkeypatch):
     model = DummyModel(hidden_size=4, num_layers=1)
     tokenizer = DummyTokenizer()
 
-    monkeypatch.setattr(
-        "feature_extractor.extractor.base.load_causal_model", lambda _: model
-    )
-    monkeypatch.setattr(
-        "feature_extractor.extractor.base.load_tokenizer", lambda _: tokenizer
-    )
+    _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
 
     feature_cfg = FeatureConfig(
         feature_names=["layer.layer_00.ffn_output", "layer.layer_00.output"]
@@ -331,12 +325,7 @@ def test_extract_features_with_attention_weights(monkeypatch):
     model = DummyModel(hidden_size=4, num_layers=1)
     tokenizer = DummyTokenizer()
 
-    monkeypatch.setattr(
-        "feature_extractor.extractor.base.load_causal_model", lambda _: model
-    )
-    monkeypatch.setattr(
-        "feature_extractor.extractor.base.load_tokenizer", lambda _: tokenizer
-    )
+    _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
 
     feature_cfg = FeatureConfig(feature_names=["attn.layer_00.weights"])
     extractor = BaseFeatureExtractor("dummy", feature_cfg)
@@ -358,12 +347,7 @@ def test_extract_features_with_attention_weights_fallback(monkeypatch):
     model = DummyLlamaModel(hidden_size=4, num_heads=2, num_key_value_heads=1)
     tokenizer = DummyTokenizer()
 
-    monkeypatch.setattr(
-        "feature_extractor.extractor.base.load_causal_model", lambda _: model
-    )
-    monkeypatch.setattr(
-        "feature_extractor.extractor.base.load_tokenizer", lambda _: tokenizer
-    )
+    _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
 
     feature_cfg = FeatureConfig(feature_names=["attn.layer_00.weights"])
     extractor = BaseFeatureExtractor("dummy", feature_cfg)
@@ -384,12 +368,7 @@ def test_extract_features_with_qkv_gqa(monkeypatch):
     model = DummyLlamaModel(hidden_size=4, num_heads=2, num_key_value_heads=1)
     tokenizer = DummyTokenizer()
 
-    monkeypatch.setattr(
-        "feature_extractor.extractor.base.load_causal_model", lambda _: model
-    )
-    monkeypatch.setattr(
-        "feature_extractor.extractor.base.load_tokenizer", lambda _: tokenizer
-    )
+    _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
 
     feature_cfg = FeatureConfig(
         feature_names=[
@@ -421,12 +400,7 @@ def test_extract_features_with_mlp_activation(monkeypatch):
     model = DummyMLPModel(hidden_size=4, mlp_dim=6, num_layers=1)
     tokenizer = DummyTokenizer()
 
-    monkeypatch.setattr(
-        "feature_extractor.extractor.base.load_causal_model", lambda _: model
-    )
-    monkeypatch.setattr(
-        "feature_extractor.extractor.base.load_tokenizer", lambda _: tokenizer
-    )
+    _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
 
     feature_cfg = FeatureConfig(feature_names=["mlp.layer_00.activation"])
     extractor = BaseFeatureExtractor("dummy", feature_cfg)
