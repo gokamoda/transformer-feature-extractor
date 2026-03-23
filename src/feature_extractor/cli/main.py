@@ -6,6 +6,7 @@ from feature_extractor.data.load import load_jsonl_text_dataset
 from feature_extractor.extractor.base import BaseFeatureExtractor
 from torch.utils.data import DataLoader
 
+DEFAULT_DATASET_PATH = Path("outputs/dataset/tinystories/train.jsonl")
 
 
 def main(
@@ -25,9 +26,8 @@ def main(
         break  # just do one batch for testing
 
 if __name__ == "__main__":
-    dataset_path = Path("outputs/dataset/tinystories/train.jsonl")
-    if dataset_path.exists():
-        dataset_raw = load_jsonl_text_dataset(dataset_path)
+    if DEFAULT_DATASET_PATH.exists():
+        dataset_raw = load_jsonl_text_dataset(DEFAULT_DATASET_PATH)
         entries = [
             Entry(idx=item.get("idx", item_idx), text=item["text"])
             for item_idx, item in enumerate(dataset_raw)
