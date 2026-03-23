@@ -132,22 +132,22 @@ class BaseFeatureExtractor:
         if config is None:
             yield False
             return
-        saved_attn_implementations: dict[str, Any] = {}
+        saved_attn_attrs: dict[str, Any] = {}
         for attr in ("attn_implementation", "_attn_implementation"):
             if not hasattr(config, attr):
                 continue
             value = getattr(config, attr)
             if not (isinstance(value, str) and value == "sdpa"):
                 continue
-            saved_attn_implementations[attr] = value
+            saved_attn_attrs[attr] = value
             setattr(config, attr, "eager")
-        if not saved_attn_implementations:
+        if not saved_attn_attrs:
             yield False
             return
         try:
             yield True
         finally:
-            for attr, value in saved_attn_implementations.items():
+            for attr, value in saved_attn_attrs.items():
                 setattr(config, attr, value)
 
     @torch.no_grad()
