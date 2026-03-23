@@ -93,12 +93,15 @@ class BaseFeatureExtractor:
         expected_num_layers: int | None = None
         attention_hooks: AttentionHookManager | None = None
         hook_managers: list[HookManager] = []
-        if feature_plan.needs_qkv:
+        if feature_plan.needs_attention_hooks:
             attention_hooks = AttentionHookManager(
                 self.model, architecture=self.architecture
             )
-            attention_hooks.install()
-            hook_managers.append(attention_hooks)
+            installed = attention_hooks.install(required=feature_plan.needs_qkv)
+            if installed:
+                hook_managers.append(attention_hooks)
+            else:
+                attention_hooks = None
         mlp_hooks = (
             MLPHookManager(self.model, architecture=self.architecture)
             if feature_plan.sorted_mlp_layers
@@ -193,7 +196,11 @@ class BaseFeatureExtractor:
                         idx,
                         feature_plan,
                     )
-                    mlp_features = self._build_mlp_features(feature_plan)
+                    mlp_features = self._build_mlp_features(
+                        feature_plan,
+                        mlp_hooks,
+                        idx,
+                    )
                     yield (
                         ExtractorResult(
                             embeddings=embeddings,
@@ -370,12 +377,31 @@ class BaseFeatureExtractor:
                         )
                         raise ValueError(msg)
                     qk_logits = attention_hooks.qk_logits(query, key)
-            weights = (
-                attentions[layer_idx][sample_index].detach().cpu()
-                if attentions is not None
-                and layer_idx in feature_plan.attn_weights_layers
-                else None
-            )
+            weights = None
+            if layer_idx in feature_plan.attn_weights_layers:
+                if attentions is not None:
+                    weights = attentions[layer_idx][sample_index].detach().cpu()
+                elif attention_hooks is not None:
+                    if query is None:
+                        query = attention_hooks.query(layer_idx, sample_index)
+                    if key is None:
+                        key = attention_hooks.key(layer_idx, sample_index)
+                    if query is not None and key is not None:
+                        if qk_logits is None:
+                            qk_logits = attention_hooks.qk_logits(query, key)
+                        weights = torch.softmax(qk_logits, dim=-1)
+                    else:
+                        _logger.warning(
+                            "Attention weights requested but projections were missing "
+                            "for layer %d.",
+                            layer_idx,
+                        )
+                else:
+                    _logger.warning(
+                        "Attention weights requested but attention hooks were unavailable "
+                        "for layer %d.",
+                        layer_idx,
+                    )
             attention_features.append(
                 AttentionFeatures(
                     layer_index=layer_idx,
@@ -385,14 +411,25 @@ class BaseFeatureExtractor:
                     qk_logits=qk_logits,
                     attn_weights=weights,
                 )
-            )
+        )
         return attention_features
 
-    def _build_mlp_features(self, feature_plan: _FeaturePlan) -> list[MLPFeatures]:
-        return [
-            MLPFeatures(layer_index=layer_idx, activation=None)
-            for layer_idx in feature_plan.sorted_mlp_layers
-        ]
+    def _build_mlp_features(
+        self,
+        feature_plan: _FeaturePlan,
+        mlp_hooks: MLPHookManager | None,
+        sample_index: int,
+    ) -> list[MLPFeatures]:
+        mlp_features: list[MLPFeatures] = []
+        for layer_idx in feature_plan.sorted_mlp_layers:
+            if mlp_hooks is None:
+                msg = "MLP activation features require MLP hooks."
+                raise ValueError(msg)
+            activation = mlp_hooks.activation(layer_idx, sample_index)
+            mlp_features.append(
+                MLPFeatures(layer_index=layer_idx, activation=activation)
+            )
+        return mlp_features
 
     def _parse_feature_names(self) -> _FeaturePlan:
         include_embeddings = False
@@ -466,11 +503,6 @@ class BaseFeatureExtractor:
         if layer_attn_output_layers:
             _logger.warning(
                 "Attention output features are not captured in the minimal "
-                "extractor and will be returned as None."
-            )
-        if mlp_activation_layers:
-            _logger.warning(
-                "MLP activation features are not captured in the minimal "
                 "extractor and will be returned as None."
             )
 
@@ -566,3 +598,7 @@ class _FeaturePlan:
             or self.attn_value_layers
             or self.attn_qk_logits_layers
         )
+
+    @property
+    def needs_attention_hooks(self) -> bool:
+        return bool(self.attn_weights_layers) or self.needs_qkv

@@ -70,6 +70,57 @@ class DummyModel(nn.Module):
         return SimpleNamespace(hidden_states=tuple(hidden_states), attentions=attentions)
 
 
+class DummyMLP(nn.Module):
+    def __init__(self, hidden_size: int, mlp_dim: int) -> None:
+        super().__init__()
+        self.fc1 = nn.Linear(hidden_size, mlp_dim)
+        self.fc2 = nn.Linear(mlp_dim, hidden_size)
+        self.act_fn = torch.relu
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        return self.fc2(self.act_fn(self.fc1(hidden_states)))
+
+
+class DummyMLPLayer(nn.Module):
+    def __init__(self, hidden_size: int, mlp_dim: int) -> None:
+        super().__init__()
+        self.mlp = DummyMLP(hidden_size, mlp_dim)
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        return self.mlp(hidden_states)
+
+
+class DummyMLPModel(nn.Module):
+    def __init__(self, hidden_size: int, mlp_dim: int, num_layers: int) -> None:
+        super().__init__()
+        self.embedding = nn.Embedding(20, hidden_size)
+        self.layers = nn.ModuleList(
+            [DummyMLPLayer(hidden_size, mlp_dim) for _ in range(num_layers)]
+        )
+
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
+    def forward(
+        self,
+        *,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+        **kwargs,
+    ):
+        hidden_states = []
+        hidden = self.embedding(input_ids)
+        hidden_states.append(hidden)
+        for layer in self.layers:
+            hidden = layer(hidden)
+            hidden_states.append(hidden)
+        return SimpleNamespace(hidden_states=tuple(hidden_states), attentions=None)
+
+
 class DummyLlamaAttention(nn.Module):
     def __init__(self, hidden_size: int, num_heads: int, num_key_value_heads: int) -> None:
         super().__init__()
@@ -295,6 +346,32 @@ def test_extract_features_with_attention_weights(monkeypatch):
     assert results[0].attention_features[0].attn_weights.shape == (1, 3, 3)
 
 
+def test_extract_features_with_attention_weights_fallback(monkeypatch):
+    model = DummyLlamaModel(hidden_size=4, num_heads=2, num_key_value_heads=1)
+    tokenizer = DummyTokenizer()
+
+    monkeypatch.setattr(
+        "feature_extractor.extractor.base.load_causal_model", lambda _: model
+    )
+    monkeypatch.setattr(
+        "feature_extractor.extractor.base.load_tokenizer", lambda _: tokenizer
+    )
+
+    feature_cfg = FeatureConfig(feature_names=["attn.layer_00.weights"])
+    extractor = BaseFeatureExtractor("dummy", feature_cfg)
+    dataset = [
+        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
+    ]
+    data_loader = DataLoader(dataset, batch_size=1)
+
+    results = list(extractor.extract_features(data_loader))
+
+    assert len(results) == 1
+    weights = results[0].attention_features[0].attn_weights
+    assert weights is not None
+    assert weights.shape == (2, 3, 3)
+
+
 def test_extract_features_with_qkv_gqa(monkeypatch):
     model = DummyLlamaModel(hidden_size=4, num_heads=2, num_key_value_heads=1)
     tokenizer = DummyTokenizer()
@@ -330,3 +407,35 @@ def test_extract_features_with_qkv_gqa(monkeypatch):
     assert features.key.shape == (2, 3, 2)
     assert features.value.shape == (2, 3, 2)
     assert features.qk_logits.shape == (2, 3, 3)
+
+
+def test_extract_features_with_mlp_activation(monkeypatch):
+    model = DummyMLPModel(hidden_size=4, mlp_dim=6, num_layers=1)
+    tokenizer = DummyTokenizer()
+
+    monkeypatch.setattr(
+        "feature_extractor.extractor.base.load_causal_model", lambda _: model
+    )
+    monkeypatch.setattr(
+        "feature_extractor.extractor.base.load_tokenizer", lambda _: tokenizer
+    )
+
+    feature_cfg = FeatureConfig(feature_names=["mlp.layer_00.activation"])
+    extractor = BaseFeatureExtractor("dummy", feature_cfg)
+    dataset = [
+        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
+    ]
+    data_loader = DataLoader(dataset, batch_size=1)
+
+    results = list(extractor.extract_features(data_loader))
+
+    assert len(results) == 1
+    assert len(results[0].mlp_features) == 1
+    activation = results[0].mlp_features[0].activation
+    assert activation is not None
+    assert activation.shape == (3, 6)
+
+    with torch.no_grad():
+        hidden = model.embedding(torch.stack([item["input_ids"] for item in dataset]))
+        expected = model.layers[0].mlp.act_fn(model.layers[0].mlp.fc1(hidden))[0]
+    assert torch.allclose(activation, expected)
