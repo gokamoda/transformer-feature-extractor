@@ -15,7 +15,15 @@ _logger = logging.getLogger(__name__)
 
 
 class MLPActivationCache:
-    """Caches per-layer MLP activation outputs captured by hooks."""
+    """Caches per-layer MLP activation outputs captured by hooks.
+
+    Parameters
+    ----------
+    mlp_modules : list[nn.Module]
+        MLP modules to hook for activation capture.
+    activation_fn : Callable
+        Callable that computes an activation tensor from hook inputs.
+    """
 
     def __init__(
         self,
@@ -167,6 +175,22 @@ class MLPHookManager(HookManager):
         inputs: tuple,
         output: torch.Tensor | tuple | None,
     ) -> torch.Tensor | None:
+        """Compute the activation tensor for a hooked MLP module.
+
+        Parameters
+        ----------
+        module : nn.Module
+            MLP module being hooked.
+        inputs : tuple
+            Inputs passed into the MLP module.
+        output : torch.Tensor | tuple | None
+            Output produced by the MLP module.
+
+        Returns
+        -------
+        torch.Tensor | None
+            Activation tensor when derivable, otherwise a fallback output or None.
+        """
         if not inputs:
             return self._fallback_activation(output)
         hidden_states = inputs[0]
@@ -184,6 +208,11 @@ class MLPHookManager(HookManager):
     def _compute_gated_activation(
         self, module: nn.Module, hidden_states: torch.Tensor
     ) -> torch.Tensor | None:
+        """Compute gated activations for MLPs with gate/up projections.
+
+        Expects ``gate_proj`` and ``up_proj`` attributes to be present on the module.
+        Returns ``act_fn(gate_proj(x)) * up_proj(x)`` when available.
+        """
         if not (hasattr(module, "gate_proj") and hasattr(module, "up_proj")):
             return None
         gate = module.gate_proj(hidden_states)
@@ -200,6 +229,11 @@ class MLPHookManager(HookManager):
     def _compute_standard_activation(
         self, module: nn.Module, hidden_states: torch.Tensor
     ) -> torch.Tensor | None:
+        """Compute standard MLP activations using the first projection.
+
+        Looks for common projection attributes (fc1, c_fc, w1, up_proj) and applies
+        the module activation function when available.
+        """
         proj = None
         if hasattr(module, "fc1"):
             proj = module.fc1(hidden_states)

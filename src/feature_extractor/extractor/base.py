@@ -418,6 +418,29 @@ class BaseFeatureExtractor:
         torch.Tensor | None,
         torch.Tensor | None,
     ]:
+        """Compute attention weights from q/k projections when attentions are missing.
+
+        Parameters
+        ----------
+        attention_hooks : AttentionHookManager | None
+            Hook manager used to fetch q/k projections.
+        layer_idx : int
+            Layer index for projection lookup.
+        sample_index : int
+            Batch index for selecting a single sample.
+        query : torch.Tensor | None
+            Precomputed query projection for reuse.
+        key : torch.Tensor | None
+            Precomputed key projection for reuse.
+        qk_logits : torch.Tensor | None
+            Precomputed qk logits for reuse.
+
+        Returns
+        -------
+        tuple
+            (weights, qk_logits, query, key) where weights may be None when fallback
+            is unavailable.
+        """
         if attention_hooks is None:
             _logger.warning(
                 "Attention weights requested but attention hooks were unavailable "
