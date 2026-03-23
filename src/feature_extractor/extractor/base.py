@@ -104,11 +104,10 @@ class BaseFeatureExtractor:
                     raise ValueError(msg)
                 missing_attentions = attentions is None
                 if attentions is not None:
-                    try:
-                        if len(attentions) == 0:
-                            missing_attentions = True
-                            attentions = None
-                    except TypeError:
+                    if not hasattr(attentions, "__len__"):
+                        missing_attentions = True
+                        attentions = None
+                    elif len(attentions) == 0:
                         missing_attentions = True
                         attentions = None
                 if feature_plan.needs_attentions and missing_attentions:
