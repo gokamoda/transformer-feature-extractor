@@ -142,16 +142,13 @@ class BaseFeatureExtractor:
 
         return parameter.device
 
-    def _is_tensor_input(self, value: Any) -> bool:
+    def _is_tensor_input(self, value: Any, depth: int = 0) -> bool:
         if isinstance(value, torch.Tensor):
             return True
         if isinstance(value, (list, tuple)):
-            if not value:
+            if not value or depth >= 3:
                 return False
-            for item in value:
-                if not self._is_tensor_input(item):
-                    return False
-            return True
+            return all(self._is_tensor_input(item, depth + 1) for item in value)
         return False
 
     def _move_to_device(self, batch: dict[str, Any]) -> dict[str, Any]:
