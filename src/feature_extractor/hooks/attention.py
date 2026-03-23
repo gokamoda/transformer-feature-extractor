@@ -8,7 +8,11 @@ import torch
 from torch import nn
 
 from feature_extractor.hooks.base import HookManager
-from feature_extractor.models.architecture import BaseModelArchitecture
+from feature_extractor.models.architecture import (
+    BaseModelArchitecture,
+    QKV_IMPLEMENTATION_CONV1D,
+    QKV_IMPLEMENTATION_INDEPENDENT_LINEAR,
+)
 
 _logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
@@ -102,6 +106,123 @@ class AttentionProjectionCache:
             raise ValueError(msg)
 
 
+class CombinedAttentionProjectionCache:
+    """Caches per-layer attention projection outputs from combined qkv modules."""
+
+    def __init__(self, combined_modules: list[nn.Module]) -> None:
+        self.q_outputs: list[torch.Tensor | None] = [None] * len(combined_modules)
+        self.k_outputs: list[torch.Tensor | None] = [None] * len(combined_modules)
+        self.v_outputs: list[torch.Tensor | None] = [None] * len(combined_modules)
+        self._hooks = []
+        for idx, module in enumerate(combined_modules):
+            self._hooks.append(
+                module.register_forward_hook(self._make_store_hook(idx))
+            )
+
+    def _make_store_hook(self, index: int):
+        def hook(_module, _inputs, output):
+            if not isinstance(output, torch.Tensor):
+                msg = (
+                    "Combined attention projection hook expected a Tensor output "
+                    f"but received {type(output)}."
+                )
+                raise TypeError(msg)
+            if output.size(-1) % 3 != 0:
+                msg = (
+                    "Combined attention projection hidden size must be divisible by 3 "
+                    f"(got {output.size(-1)})."
+                )
+                raise ValueError(msg)
+            q, k, v = output.chunk(3, dim=-1)
+            self.q_outputs[index] = q.detach()
+            self.k_outputs[index] = k.detach()
+            self.v_outputs[index] = v.detach()
+
+        return hook
+
+    def reset(self) -> None:
+        for storage in (self.q_outputs, self.k_outputs, self.v_outputs):
+            for idx in range(len(storage)):
+                storage[idx] = None
+
+    def remove(self) -> None:
+        for hook in self._hooks:
+            hook.remove()
+
+    def validate_layer_count(self, expected: int) -> None:
+        actual = len(self.q_outputs)
+        if actual != expected:
+            msg = (
+                "Attention projection hooks do not match model layer count. "
+                f"Expected {expected} layers but found {actual}."
+            )
+            raise ValueError(msg)
+
+
+class AttentionOutputCache:
+    """Caches per-layer attention outputs captured by hooks."""
+
+    def __init__(self, attn_modules: list[nn.Module]) -> None:
+        self.outputs: list[torch.Tensor | None] = [None] * len(attn_modules)
+        self._hooks = []
+        for idx, module in enumerate(attn_modules):
+            self._hooks.append(
+                module.register_forward_hook(self._make_store_hook(self.outputs, idx))
+            )
+
+    @staticmethod
+    def _make_store_hook(storage: list[torch.Tensor | None], index: int):
+        def hook(_module, _inputs, output):
+            output_tensor = None
+            if isinstance(output, torch.Tensor):
+                output_tensor = output
+            elif isinstance(output, (tuple, list)) and output:
+                if isinstance(output[0], torch.Tensor):
+                    output_tensor = output[0]
+            if output_tensor is None:
+                msg = (
+                    "Attention output hook expected a Tensor output "
+                    f"but received {type(output)}."
+                )
+                raise TypeError(msg)
+            storage[index] = output_tensor.detach()
+
+        return hook
+
+    def reset(self) -> None:
+        for idx in range(len(self.outputs)):
+            self.outputs[idx] = None
+
+    def remove(self) -> None:
+        for hook in self._hooks:
+            hook.remove()
+
+    def validate_layer_count(self, expected: int) -> None:
+        actual = len(self.outputs)
+        if actual != expected:
+            msg = (
+                "Attention output hooks do not match model layer count. "
+                f"Expected {expected} layers but found {actual}."
+            )
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
+class QKVModuleGroup:
+    q_modules: list[nn.Module]
+    k_modules: list[nn.Module]
+    v_modules: list[nn.Module]
+    combined_modules: list[nn.Module]
+
+    @property
+    def has_independent(self) -> bool:
+        return bool(self.q_modules)
+
+    @property
+    def has_combined(self) -> bool:
+        return bool(self.combined_modules)
+
+
 class AttentionHookManager(HookManager):
     """Manage attention hooks and reshape captured projections.
 
@@ -116,45 +237,102 @@ class AttentionHookManager(HookManager):
     ) -> None:
         """Initialize the manager for the provided model."""
         super().__init__(model, architecture)
-        self.projection_cache: AttentionProjectionCache | None = None
+        self.projection_cache: AttentionProjectionCache | CombinedAttentionProjectionCache | None = None
+        self.attn_output_cache: AttentionOutputCache | None = None
         self.head_config: AttentionHeadConfig | None = None
         self._warned_layer_fallback = False
         self._warned_attention_fallback = False
 
-    def install(self, *, required: bool = True) -> None:
+    def install(
+        self, *, required: bool = True, capture_attn_output: bool = False
+    ) -> None:
         """Install projection hooks and resolve attention head metadata.
 
         Parameters
         ----------
         required : bool
             When True, raise if q/k/v projections cannot be resolved. When False,
-            return False if hooks could not be installed.
+            log a warning if hooks could not be installed.
+        capture_attn_output : bool
+            When True, capture per-layer attention outputs.
 
         """
-        q_modules, k_modules, v_modules = self._resolve_qkv_modules()
-        if not q_modules:
-            msg = "Model does not expose q/k/v projection modules."
-            if required:
-                raise ValueError(msg)
-            _logger.warning("%s Falling back to model-provided attentions.", msg)
-            return
-        self.projection_cache = AttentionProjectionCache(q_modules, k_modules, v_modules)
-        self.head_config = self._resolve_attention_head_config()
+        module_group = self._resolve_qkv_modules()
+        if required:
+            if self._architecture.qkv_implementation == QKV_IMPLEMENTATION_CONV1D:
+                if module_group.has_combined:
+                    self.projection_cache = CombinedAttentionProjectionCache(
+                        module_group.combined_modules
+                    )
+                else:
+                    msg = "Model does not expose combined qkv projection modules."
+                    raise ValueError(msg)
+            else:
+                if module_group.has_independent:
+                    self.projection_cache = AttentionProjectionCache(
+                        module_group.q_modules,
+                        module_group.k_modules,
+                        module_group.v_modules,
+                    )
+                else:
+                    msg = "Model does not expose q/k/v projection modules."
+                    raise ValueError(msg)
+            self.head_config = self._resolve_attention_head_config()
+        else:
+            if self._architecture.qkv_implementation == QKV_IMPLEMENTATION_CONV1D:
+                if module_group.has_combined:
+                    self.projection_cache = CombinedAttentionProjectionCache(
+                        module_group.combined_modules
+                    )
+                    self.head_config = self._resolve_attention_head_config()
+                else:
+                    _logger.warning(
+                        "Model does not expose combined qkv projection modules. "
+                        "Falling back to model-provided attentions."
+                    )
+            else:
+                if module_group.has_independent:
+                    self.projection_cache = AttentionProjectionCache(
+                        module_group.q_modules,
+                        module_group.k_modules,
+                        module_group.v_modules,
+                    )
+                    self.head_config = self._resolve_attention_head_config()
+                else:
+                    _logger.warning(
+                        "Model does not expose q/k/v projection modules. "
+                        "Falling back to model-provided attentions."
+                    )
+
+        if capture_attn_output:
+            attn_modules = self._resolve_attention_modules()
+            if attn_modules:
+                self.attn_output_cache = AttentionOutputCache(attn_modules)
+            else:
+                _logger.warning(
+                    "Model does not expose attention modules for output capture."
+                )
 
     def reset(self) -> None:
         """Clear cached projections after each forward pass."""
         if self.projection_cache is not None:
             self.projection_cache.reset()
+        if self.attn_output_cache is not None:
+            self.attn_output_cache.reset()
 
     def remove(self) -> None:
         """Remove installed hooks."""
         if self.projection_cache is not None:
             self.projection_cache.remove()
+        if self.attn_output_cache is not None:
+            self.attn_output_cache.remove()
 
     def validate_layer_count(self, actual_layer_count: int) -> None:
         """Validate the number of hooks matches the model layer count."""
         if self.projection_cache is not None:
             self.projection_cache.validate_layer_count(actual_layer_count)
+        if self.attn_output_cache is not None:
+            self.attn_output_cache.validate_layer_count(actual_layer_count)
 
     def query(self, layer_idx: int, sample_index: int) -> torch.Tensor:
         """Return per-head query projection for the requested layer."""
@@ -195,7 +373,23 @@ class AttentionHookManager(HookManager):
         scaling_factor = 1.0 / math.sqrt(self._head_config_or_raise().head_dim)
         return torch.matmul(query, key.transpose(-2, -1)) * scaling_factor
 
-    def _projection_cache_or_raise(self) -> AttentionProjectionCache:
+    def attn_output(self, layer_idx: int, sample_index: int) -> torch.Tensor:
+        """Return attention output for the requested layer."""
+        output = self._attn_output_cache_or_raise().outputs[layer_idx]
+        if output is None:
+            msg = f"Missing attention output for layer {layer_idx}."
+            raise ValueError(msg)
+        if output.dim() != 3:
+            msg = (
+                "Attention output must be a 3D tensor "
+                f"(got shape {tuple(output.shape)})."
+            )
+            raise ValueError(msg)
+        return output[sample_index].detach().cpu()
+
+    def _projection_cache_or_raise(
+        self,
+    ) -> AttentionProjectionCache | CombinedAttentionProjectionCache:
         if self.projection_cache is None:
             msg = "Attention projection hooks are not installed."
             raise ValueError(msg)
@@ -207,11 +401,40 @@ class AttentionHookManager(HookManager):
             raise ValueError(msg)
         return self.head_config
 
-    def _resolve_qkv_modules(
-        self,
-    ) -> tuple[list[nn.Module], list[nn.Module], list[nn.Module]]:
+    def _attn_output_cache_or_raise(self) -> AttentionOutputCache:
+        if self.attn_output_cache is None:
+            msg = "Attention output hooks are not installed."
+            raise ValueError(msg)
+        return self.attn_output_cache
+
+    def _resolve_qkv_modules(self) -> QKVModuleGroup:
+        layers = self._resolve_layers()
+        if layers is None:
+            return QKVModuleGroup([], [], [], [])
+
+        q_modules: list[nn.Module] = []
+        k_modules: list[nn.Module] = []
+        v_modules: list[nn.Module] = []
+        combined_modules: list[nn.Module] = []
+        for attn in self._resolve_attention_modules(layers):
+            if attn is None:
+                continue
+            if self._architecture.qkv_implementation == QKV_IMPLEMENTATION_CONV1D:
+                if hasattr(attn, "c_attn"):
+                    combined_modules.append(attn.c_attn)
+                continue
+            if self._architecture.qkv_implementation == QKV_IMPLEMENTATION_INDEPENDENT_LINEAR:
+                if not all(
+                    hasattr(attn, name) for name in ("q_proj", "k_proj", "v_proj")
+                ):
+                    continue
+                q_modules.append(attn.q_proj)
+                k_modules.append(attn.k_proj)
+                v_modules.append(attn.v_proj)
+        return QKVModuleGroup(q_modules, k_modules, v_modules, combined_modules)
+
+    def _resolve_layers(self) -> list[nn.Module] | None:
         model = self._model
-        layers = None
         architecture = self._architecture
         model_root = getattr(model, architecture.model_field, model)
         layers = getattr(model_root, architecture.layer_field, None)
@@ -229,12 +452,17 @@ class AttentionHookManager(HookManager):
                 layers = model.layers
             elif hasattr(model, "transformer") and hasattr(model.transformer, "h"):
                 layers = model.transformer.h
-        if layers is None:
-            return ([], [], [])
+        return list(layers) if layers is not None else None
 
-        q_modules: list[nn.Module] = []
-        k_modules: list[nn.Module] = []
-        v_modules: list[nn.Module] = []
+    def _resolve_attention_modules(
+        self, layers: list[nn.Module] | None = None
+    ) -> list[nn.Module]:
+        if layers is None:
+            layers = self._resolve_layers()
+        if layers is None:
+            return []
+        architecture = self._architecture
+        attn_modules: list[nn.Module] = []
         for layer in layers:
             attn = getattr(layer, architecture.attn_field, None)
             if attn is None:
@@ -248,12 +476,8 @@ class AttentionHookManager(HookManager):
                 attn = getattr(layer, "self_attn", None) or getattr(layer, "attn", None)
             if attn is None:
                 continue
-            if not all(hasattr(attn, name) for name in ("q_proj", "k_proj", "v_proj")):
-                continue
-            q_modules.append(attn.q_proj)
-            k_modules.append(attn.k_proj)
-            v_modules.append(attn.v_proj)
-        return (q_modules, k_modules, v_modules)
+            attn_modules.append(attn)
+        return attn_modules
 
     @staticmethod
     def _warn_architecture_fallback(

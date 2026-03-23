@@ -8,6 +8,10 @@ from torch.utils.data import DataLoader
 
 from feature_extractor.configs.schema import FeatureConfig
 from feature_extractor.extractor.base import BaseFeatureExtractor
+from feature_extractor.models.architecture import (
+    BaseModelArchitecture,
+    QKV_IMPLEMENTATION_CONV1D,
+)
 
 
 def _patch_model_and_tokenizer(monkeypatch, model, tokenizer) -> None:
@@ -209,6 +213,62 @@ class DummyLlamaModel(nn.Module):
         return SimpleNamespace(hidden_states=tuple(hidden_states), attentions=None)
 
 
+class DummyGPT2Attention(nn.Module):
+    def __init__(self, hidden_size: int) -> None:
+        super().__init__()
+        self.c_attn = nn.Linear(hidden_size, hidden_size * 3, bias=False)
+        self.c_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        qkv = self.c_attn(hidden_states)
+        query, key, value = qkv.chunk(3, dim=-1)
+        return self.c_proj(query + key + value)
+
+
+class DummyGPT2Layer(nn.Module):
+    def __init__(self, hidden_size: int) -> None:
+        super().__init__()
+        self.attn = DummyGPT2Attention(hidden_size)
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        return self.attn(hidden_states)
+
+
+class DummyGPT2Inner(nn.Module):
+    def __init__(self, hidden_size: int) -> None:
+        super().__init__()
+        self.h = nn.ModuleList([DummyGPT2Layer(hidden_size)])
+
+
+class DummyGPT2Model(nn.Module):
+    def __init__(self, hidden_size: int, num_heads: int) -> None:
+        super().__init__()
+        self.embedding = nn.Embedding(20, hidden_size)
+        self.transformer = DummyGPT2Inner(hidden_size)
+        self.config = SimpleNamespace(n_head=num_heads, n_embd=hidden_size)
+
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
+    def forward(
+        self,
+        *,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        output_attentions: bool | None = None,
+        output_hidden_states: bool | None = None,
+        return_dict: bool | None = None,
+        **kwargs,
+    ):
+        hidden_states = []
+        hidden = self.embedding(input_ids)
+        hidden_states.append(hidden)
+        for layer in self.transformer.h:
+            hidden = layer(hidden)
+            hidden_states.append(hidden)
+        return SimpleNamespace(hidden_states=tuple(hidden_states), attentions=None)
+
 def test_extract_features_embeddings_and_residual(monkeypatch):
     model = DummyModel(hidden_size=4, num_layers=2)
     tokenizer = DummyTokenizer()
@@ -365,6 +425,34 @@ def test_extract_features_with_attention_weights_fallback(monkeypatch):
     assert weights.shape == (2, 3, 3)
 
 
+def test_extract_features_with_layer_attn_output(monkeypatch):
+    model = DummyLlamaModel(hidden_size=4, num_heads=2, num_key_value_heads=1)
+    tokenizer = DummyTokenizer()
+
+    _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
+
+    feature_cfg = FeatureConfig(feature_names=["layer.layer_00.attn_output"])
+    extractor = BaseFeatureExtractor("dummy", feature_cfg)
+    dataset = [
+        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
+    ]
+    data_loader = DataLoader(dataset, batch_size=1)
+
+    results = list(extractor.extract_features(data_loader))
+
+    assert len(results) == 1
+    assert results[0].layer_features[0].attn_output is not None
+    assert results[0].layer_features[0].attn_output.shape == (3, 4)
+
+    with torch.no_grad():
+        model_output = model(
+            input_ids=torch.stack([item["input_ids"] for item in dataset])
+        )
+    assert torch.allclose(
+        results[0].layer_features[0].attn_output, model_output.hidden_states[1][0]
+    )
+
+
 def test_extract_features_with_qkv_gqa(monkeypatch):
     model = DummyLlamaModel(hidden_size=4, num_heads=2, num_key_value_heads=1)
     tokenizer = DummyTokenizer()
@@ -395,6 +483,36 @@ def test_extract_features_with_qkv_gqa(monkeypatch):
     assert features.key.shape == (2, 3, 2)
     assert features.value.shape == (2, 3, 2)
     assert features.qk_logits.shape == (2, 3, 3)
+
+
+def test_extract_features_with_conv1d_qkv(monkeypatch):
+    model = DummyGPT2Model(hidden_size=4, num_heads=2)
+    tokenizer = DummyTokenizer()
+
+    _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
+    monkeypatch.setattr(
+        "feature_extractor.extractor.base.get_model_architecture",
+        lambda _: BaseModelArchitecture(
+            model_field="transformer",
+            layer_field="h",
+            attn_field="attn",
+            qkv_implementation=QKV_IMPLEMENTATION_CONV1D,
+        ),
+    )
+
+    feature_cfg = FeatureConfig(feature_names=["attn.layer_00.query"])
+    extractor = BaseFeatureExtractor("dummy", feature_cfg)
+    dataset = [
+        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
+    ]
+    data_loader = DataLoader(dataset, batch_size=1)
+
+    results = list(extractor.extract_features(data_loader))
+
+    assert len(results) == 1
+    features = results[0].attention_features[0]
+    assert features.query is not None
+    assert features.query.shape == (2, 3, 2)
 
 
 def test_extract_features_with_mlp_activation(monkeypatch):

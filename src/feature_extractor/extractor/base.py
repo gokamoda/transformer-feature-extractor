@@ -97,8 +97,14 @@ class BaseFeatureExtractor:
             attention_hooks = AttentionHookManager(
                 self.model, architecture=self.architecture
             )
-            attention_hooks.install(required=feature_plan.needs_qkv)
-            if attention_hooks.projection_cache is not None:
+            attention_hooks.install(
+                required=feature_plan.needs_qkv,
+                capture_attn_output=bool(feature_plan.layer_attn_output_layers),
+            )
+            if (
+                attention_hooks.projection_cache is not None
+                or attention_hooks.attn_output_cache is not None
+            ):
                 hook_managers.append(attention_hooks)
             else:
                 attention_hooks = None
@@ -188,7 +194,7 @@ class BaseFeatureExtractor:
                         else None
                     )
                     layer_features = self._build_layer_features(
-                        hidden_states, idx, feature_plan
+                        hidden_states, idx, feature_plan, attention_hooks
                     )
                     attention_features = self._build_attention_features(
                         attentions,
@@ -309,6 +315,7 @@ class BaseFeatureExtractor:
         hidden_states: tuple[torch.Tensor, ...],
         sample_index: int,
         feature_plan: _FeaturePlan,
+        attention_hooks: AttentionHookManager | None,
     ) -> list[LayerFeatures]:
         layer_features: list[LayerFeatures] = []
         for layer_idx in feature_plan.sorted_layers:
@@ -325,6 +332,12 @@ class BaseFeatureExtractor:
                 if layer_idx in feature_plan.pre_attn_layers
                 else None
             )
+            attn_output = None
+            if layer_idx in feature_plan.layer_attn_output_layers:
+                if attention_hooks is None:
+                    msg = "Attention output features require attention hooks."
+                    raise ValueError(msg)
+                attn_output = attention_hooks.attn_output(layer_idx, sample_index)
             mlp_output = (
                 layer_output if layer_idx in feature_plan.ffn_output_layers else None
             )
@@ -332,7 +345,7 @@ class BaseFeatureExtractor:
                 LayerFeatures(
                     layer_index=layer_idx,
                     input=input_tensor,
-                    attn_output=None,
+                    attn_output=attn_output,
                     mlp_output=mlp_output,
                     output=output_tensor,
                 )
@@ -549,12 +562,6 @@ class BaseFeatureExtractor:
             msg = f"Unsupported feature names: {', '.join(unknown)}"
             raise ValueError(msg)
 
-        if layer_attn_output_layers:
-            _logger.warning(
-                "Layer attention output features (layer.layer_XX.attn_output) are "
-                "not captured in the minimal extractor and will be returned as None."
-            )
-
         return _FeaturePlan(
             include_embeddings=include_embeddings,
             pre_attn_layers=pre_attn_layers,
@@ -650,4 +657,6 @@ class _FeaturePlan:
 
     @property
     def needs_attention_hooks(self) -> bool:
-        return bool(self.attn_weights_layers) or self.needs_qkv
+        return bool(self.attn_weights_layers) or self.needs_qkv or bool(
+            self.layer_attn_output_layers
+        )

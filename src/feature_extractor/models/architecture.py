@@ -3,6 +3,8 @@ from typing import Literal
 
 MLP_IMPLEMENTATION_STANDARD = "standard"
 MLP_IMPLEMENTATION_GATED = "gated"
+QKV_IMPLEMENTATION_INDEPENDENT_LINEAR = "independent_linear"
+QKV_IMPLEMENTATION_CONV1D = "conv1d"
 
 
 @dataclass(frozen=True)
@@ -13,7 +15,9 @@ class BaseModelArchitecture:
     layer_field: str = "layer"
     attn_field: str = "attn"
     mlp_field: str = "mlp"
-    qkv_implementation: Literal["conv1d", "independent_linear"] = "independent_linear"
+    qkv_implementation: Literal["conv1d", "independent_linear"] = (
+        QKV_IMPLEMENTATION_INDEPENDENT_LINEAR
+    )
     mlp_implementation: Literal["standard", "gated"] = MLP_IMPLEMENTATION_STANDARD
 
 class LlamaForCausalLMArchitecture(BaseModelArchitecture):
@@ -21,7 +25,9 @@ class LlamaForCausalLMArchitecture(BaseModelArchitecture):
     layer_field: str = "layers"
     attn_field: str = "self_attn"
     mlp_field: str = "mlp"
-    qkv_implementation: Literal["conv1d", "independent_linear"] = "independent_linear"
+    qkv_implementation: Literal["conv1d", "independent_linear"] = (
+        QKV_IMPLEMENTATION_INDEPENDENT_LINEAR
+    )
     mlp_implementation: Literal["standard", "gated"] = MLP_IMPLEMENTATION_STANDARD
 
 
