@@ -1,0 +1,124 @@
+[project]
+name = "project"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { name = "gokamoda", email = "gokamoda@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+
+dependencies = [
+    "rich>=13.9.4",
+    "pytz>=2025.2",
+    "tqdm>=4.67.1",
+    "multiprocess<=0.70.17",
+    "numpy>=2.3.4",
+    "transformers>=4.40.0",
+    "datasets>=3.2.0,<4.0.0", # keep v3 for download scripts
+    "scikit-learn>=1.4.0",
+    "matplotlib>=3.9.0",
+    "safetensors>=0.4.0",
+    "omegaconf>=2.3.0",
+]
+
+
+[project.scripts]
+greet = "project.cli.greet:main"
+
+[tool.uv]
+dev-dependencies = [
+    "ipython>=8.29.0",
+    "jupyter>=1.1.1",
+    "mypy>=1.11.2",
+    "pre-commit>=3.8.0",
+    "pytest>=8.3.4",
+    "ruff>=0.7.2",
+    "ty>=0.0.23",
+]
+conflicts = [
+  [
+    { extra = "cpu" },
+    { extra = "gpu" },
+  ],
+]
+
+
+[project.optional-dependencies]
+cpu = ["torch==2.7.0"]
+gpu = ["torch==2.7.0"]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu-mac", extra = "cpu", marker = "platform_system == 'macOS'" },
+  { index = "pytorch-cpu", extra = "cpu", marker = "platform_system != 'macOS'" },
+  { index = "pytorch-gpu", extra = "gpu" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu-mac"
+url = "https://pypi.python.org/simple"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-gpu"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.pytest.ini_options]
+pythonpath = "src"
+testpaths = ["src", "tests"]
+
+[tool.ruff]
+exclude = [".git", ".mypy_cache", ".ruff_cache", ".venv", "third_party"]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+fixable = ["ALL"]
+unfixable = []
+select = [
+    "A",  # flake8-builtin
+    "B",  # flake8-bugbear
+    "E",  # pycodestyle error
+    "F",  # Pyflakes
+    "I",  # isort
+    "N",  # pep8-naming
+    "W",  # pycodestyle warning
+    "PL",  # Pylint
+    "UP",  # pyupgrade
+]
+ignore = [
+    "B905",  # Zip-without-explicit-strict
+    "E501",  # Line too long, handled by black
+    "F403",  # Unable to detect undefined names
+    "N812",  # Lowercase imported as non-lowercase
+    "N816",  # Global scope should not be mixedCase
+    "N803",  # Argument name should be lowercase
+    "N806",  # Variable in function should be lowercase
+    "N999",  # Invalid module name
+    "UP035",  # Checks for uses of deprecated imports based on the minimum supported Python version.
+    "PLR0912",  # Too many branches
+    "PLR0913",  # Too many arguments in function definition
+    "PLR0915",  # Too many statements in function
+    "PLR2004",  # Magic value used in comparison
+    "PLC0415",  # Import not at top of file (intentional for CLI lazy imports)
+    "PLW2901",  # For loop variable overwritten by assignment target
+    "A002",  # Argument shadows builtin (intentional for `format` parameter)
+]
+
+[tool.ruff.lint.pyupgrade]
+keep-runtime-typing = true  # Settings for Python 3.8 compatibility
+
+[tool.ruff.format]
+quote-style = "double"
+line-ending = "auto"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
