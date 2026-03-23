@@ -12,6 +12,7 @@ from feature_extractor.hooks.results import ExtractorResult, LayerFeatures
 from feature_extractor.models.load import load_causal_model, load_tokenizer
 
 _RESIDUAL_FEATURE_RE = re.compile(r"residual\.layer_(\d+)\.(pre_attn|post_ffn)")
+_MAX_TENSOR_NESTING_DEPTH = 3
 
 
 class BaseFeatureExtractor:
@@ -146,7 +147,10 @@ class BaseFeatureExtractor:
         if isinstance(value, torch.Tensor):
             return True
         if isinstance(value, (list, tuple)):
-            if not value or depth >= 3:
+            if not value:
+                # Empty sequences provide no tensor payload to forward.
+                return False
+            if depth >= _MAX_TENSOR_NESTING_DEPTH:
                 return False
             return all(self._is_tensor_input(item, depth + 1) for item in value)
         return False

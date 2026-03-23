@@ -29,6 +29,7 @@ class DummyModel(nn.Module):
             [nn.Linear(hidden_size, hidden_size) for _ in range(num_layers)]
         )
         self.last_attention_mask: torch.Tensor | None = None
+        self.extra_keys: tuple[str, ...] = ()
 
     @property
     def device(self):
@@ -41,8 +42,10 @@ class DummyModel(nn.Module):
         attention_mask: torch.Tensor | None = None,
         output_hidden_states: bool | None = None,
         return_dict: bool | None = None,
+        **kwargs,
     ):
         self.last_attention_mask = attention_mask
+        self.extra_keys = tuple(kwargs.keys())
         hidden_states = []
         hidden = self.embedding(input_ids)
         hidden_states.append(hidden)
@@ -80,6 +83,7 @@ def test_extract_features_embeddings_and_residual(monkeypatch):
     results = list(extractor.extract_features(data_loader))
 
     assert len(results) == 2
+    assert model.extra_keys == ()
     assert results[0].embeddings.shape == (3, 4)
     assert len(results[0].layer_features) == 2
     assert results[0].layer_features[0].input is not None
