@@ -9,12 +9,15 @@ from torch import nn
 
 @dataclass(frozen=True)
 class AttentionHeadConfig:
+    """Shape metadata for attention projections."""
+
     num_heads: int
     num_key_value_heads: int
     head_dim: int
 
 
 class AttentionProjectionCache:
+    """Caches per-layer attention projection outputs captured by hooks."""
     def __init__(
         self,
         q_projections: list[nn.Module],
@@ -77,6 +80,7 @@ class AttentionProjectionCache:
 
 
 class AttentionHookManager:
+    """Manage attention hooks and reshape captured projections."""
     def __init__(self, model: nn.Module) -> None:
         self._model = model
         self.projection_cache: AttentionProjectionCache | None = None
