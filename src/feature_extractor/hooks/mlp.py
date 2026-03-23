@@ -37,7 +37,7 @@ class MLPActivationCache:
         index: int,
         activation_fn,
     ):
-        def hook(module, inputs, output):
+        def activation_hook(module, inputs, output):
             activation = activation_fn(module, inputs, output)
             if activation is None:
                 storage[index] = None
@@ -50,7 +50,7 @@ class MLPActivationCache:
                 raise TypeError(msg)
             storage[index] = activation.detach()
 
-        return hook
+        return activation_hook
 
     def reset(self) -> None:
         for idx in range(len(self.activation_outputs)):
@@ -167,7 +167,9 @@ class MLPHookManager(HookManager):
         inputs: tuple,
         output: torch.Tensor | tuple | None,
     ) -> torch.Tensor | None:
-        hidden_states = inputs[0] if inputs else None
+        if not inputs:
+            return self._fallback_activation(output)
+        hidden_states = inputs[0]
         if not isinstance(hidden_states, torch.Tensor):
             return self._fallback_activation(output)
         if self._architecture.mlp_implementation == MLP_IMPLEMENTATION_GATED:

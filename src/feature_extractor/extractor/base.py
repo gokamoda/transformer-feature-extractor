@@ -93,7 +93,7 @@ class BaseFeatureExtractor:
         expected_num_layers: int | None = None
         attention_hooks: AttentionHookManager | None = None
         hook_managers: list[HookManager] = []
-        if feature_plan.needs_attention_hooks:
+        if feature_plan.should_install_attention_hooks:
             attention_hooks = AttentionHookManager(
                 self.model, architecture=self.architecture
             )
@@ -629,5 +629,5 @@ class _FeaturePlan:
         )
 
     @property
-    def needs_attention_hooks(self) -> bool:
+    def should_install_attention_hooks(self) -> bool:
         return bool(self.attn_weights_layers) or self.needs_qkv

@@ -133,9 +133,10 @@ class DummyMLPModel(nn.Module):
 def _expected_dummy_mlp_activation(
     model: DummyMLPModel,
     input_ids: torch.Tensor,
+    layer_idx: int = 0,
 ) -> torch.Tensor:
     hidden = model.embedding(input_ids)
-    return model.layers[0].mlp.act_fn(model.layers[0].mlp.fc1(hidden))
+    return model.layers[layer_idx].mlp.act_fn(model.layers[layer_idx].mlp.fc1(hidden))
 
 
 class DummyLlamaAttention(nn.Module):
