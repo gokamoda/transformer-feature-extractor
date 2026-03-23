@@ -37,6 +37,18 @@ def _is_indexable_sequence(value: object) -> bool:
 
 
 def _normalize_attentions(attentions: object) -> tuple[object | None, bool]:
+    """Normalize model attention outputs for downstream feature extraction.
+
+    Parameters
+    ----------
+    attentions : object
+        Raw attention output returned by the model.
+
+    Returns
+    -------
+    tuple
+        (normalized attentions or None, is_sequence flag).
+    """
     is_sequence = False
     if attentions is not None:
         if _is_indexable_sequence(attentions):
@@ -439,8 +451,8 @@ class BaseFeatureExtractor:
         if weights is None:
             _logger.warning(
                 "Attention weights requested but unavailable from hooks for layer %d. "
-                "Ensure attention modules expose attn_weights/attn_probs or enable "
-                "output_attentions.",
+                "Ensure attention modules expose attention_weights/attn_weights/"
+                "attn_probs or enable output_attentions.",
                 layer_idx,
             )
         return weights
