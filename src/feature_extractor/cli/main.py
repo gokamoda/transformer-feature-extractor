@@ -13,9 +13,11 @@ def main(
     model_name_or_path: str,
     dataset: TextDataset,
     feature_cfg: FeatureConfig,
-    dtype: torch.dtype = torch.float32,
+    hook_dtype: torch.dtype = torch.float32,
 ):
-    extractor = BaseFeatureExtractor(model_name_or_path, feature_cfg, hook_dtype=dtype)
+    extractor = BaseFeatureExtractor(
+        model_name_or_path, feature_cfg, hook_dtype=hook_dtype
+    )
     dataloader = DataLoader(
         dataset,
         batch_size=8,
@@ -56,5 +58,5 @@ if __name__ == "__main__":
             save_format="pt",
             batch_size=2,
         ),
-        dtype=torch.float32,
+        hook_dtype=torch.float32,
     )
