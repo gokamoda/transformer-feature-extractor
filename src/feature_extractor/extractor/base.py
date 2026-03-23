@@ -687,7 +687,7 @@ class _AttentionProjectionCache:
 
     def reset(self) -> None:
         for storage in (self.q_outputs, self.k_outputs, self.v_outputs):
-            for idx, _ in enumerate(storage):
+            for idx in range(len(storage)):
                 storage[idx] = None
 
     def remove(self) -> None:
