@@ -438,8 +438,10 @@ class BaseFeatureExtractor:
         weights = attention_hooks.attn_weights(layer_idx, sample_index)
         if weights is None:
             _logger.warning(
-                "Model did not return attention weights; returning None for attention "
-                "weight features."
+                "Attention weights requested but unavailable from hooks for layer %d. "
+                "Ensure attention modules expose attn_weights/attn_probs or enable "
+                "output_attentions.",
+                layer_idx,
             )
         return weights
 
