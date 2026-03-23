@@ -36,15 +36,11 @@ def _is_indexable_sequence(value: object) -> bool:
     return isinstance(value, Sequence) and not isinstance(value, (str, bytes))
 
 
-def _normalize_attentions(
-    attentions: object, *, needs_attentions: bool
-) -> tuple[object | None, bool]:
+def _normalize_attentions(attentions: object) -> tuple[object | None, bool]:
     is_sequence = False
-    missing_attentions = attentions is None
     if attentions is not None:
         if _is_indexable_sequence(attentions):
             if len(attentions) == 0:
-                missing_attentions = True
                 attentions = None
             else:
                 is_sequence = True
@@ -54,13 +50,7 @@ def _normalize_attentions(
                 f"{type(attentions)}; returning None for attention weight "
                 "features."
             )
-            missing_attentions = True
             attentions = None
-    if needs_attentions and missing_attentions:
-        _logger.warning(
-            "Model did not return attention weights; returning None "
-            "for attention weight features."
-        )
     return attentions, is_sequence
 
 
@@ -177,9 +167,7 @@ class BaseFeatureExtractor:
                         f"{len(hidden_states)}."
                     )
                     raise ValueError(msg)
-                attentions, is_sequence = _normalize_attentions(
-                    attentions, needs_attentions=feature_plan.needs_attentions
-                )
+                attentions, is_sequence = _normalize_attentions(attentions)
                 if attentions is not None and len(attentions) != actual_num_layers:
                     msg = (
                         "Model returned inconsistent attention lengths. "
@@ -402,11 +390,10 @@ class BaseFeatureExtractor:
                 if attentions is not None:
                     weights = attentions[layer_idx][sample_index].detach().cpu()
                 else:
-                    weights, qk_logits = self._derive_attention_weights_from_logits(
+                    weights = self._derive_attention_weights_from_hooks(
                         attention_hooks,
                         layer_idx,
                         sample_index,
-                        qk_logits,
                     )
             attention_features.append(
                 AttentionFeatures(
@@ -420,33 +407,26 @@ class BaseFeatureExtractor:
             )
         return attention_features
 
-    def _derive_attention_weights_from_logits(
+    def _derive_attention_weights_from_hooks(
         self,
         attention_hooks: AttentionHookManager | None,
         layer_idx: int,
         sample_index: int,
-        existing_qk_logits: torch.Tensor | None,
-    ) -> tuple[
-        torch.Tensor | None,
-        torch.Tensor | None,
-    ]:
-        """Compute attention weights from model-provided logits when available.
+    ) -> torch.Tensor | None:
+        """Retrieve attention weights from attention hooks when available.
 
         Parameters
         ----------
         attention_hooks : AttentionHookManager | None
-            Hook manager used to fetch attention logits.
+            Hook manager used to fetch attention weights.
         layer_idx : int
             Layer index for projection lookup.
         sample_index : int
             Batch index for selecting a single sample.
-        existing_qk_logits : torch.Tensor | None
-            Precomputed qk logits for reuse.
-
         Returns
         -------
-        tuple
-            (weights, qk_logits) where weights may be None when fallback is unavailable.
+        torch.Tensor | None
+            Attention weights, or None when unavailable.
         """
         if attention_hooks is None:
             _logger.warning(
@@ -454,24 +434,14 @@ class BaseFeatureExtractor:
                 "for layer %d.",
                 layer_idx,
             )
-            return None, existing_qk_logits
+            return None
         weights = attention_hooks.attn_weights(layer_idx, sample_index)
-        if weights is not None:
-            return weights, existing_qk_logits
-        qk_logits = existing_qk_logits
-        if qk_logits is None:
-            qk_logits = attention_hooks.qk_logits(layer_idx, sample_index)
-        if qk_logits is not None:
-            weights = torch.softmax(qk_logits, dim=-1)
-            return weights, qk_logits
-        _logger.warning(
-            "Attention weights requested but attention logits were unavailable for "
-            "layer %d. Check for module/output attributes (attn_logits, attn_scores, "
-            "last_qk_logits), dict keys with those names, or tuple outputs where "
-            "the second element is logits.",
-            layer_idx,
-        )
-        return None, qk_logits
+        if weights is None:
+            _logger.warning(
+                "Model did not return attention weights; returning None for attention "
+                "weight features."
+            )
+        return weights
 
     def _build_mlp_features(
         self,

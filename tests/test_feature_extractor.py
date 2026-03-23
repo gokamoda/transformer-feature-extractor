@@ -156,6 +156,7 @@ class DummyLlamaAttention(nn.Module):
         self.v_proj = nn.Linear(hidden_size, num_key_value_heads * head_dim, bias=False)
         self.o_proj = nn.Linear(hidden_size, hidden_size, bias=False)
         self.last_qk_logits: torch.Tensor | None = None
+        self.attn_weights: torch.Tensor | None = None
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         query_proj = self.q_proj(hidden_states)
@@ -173,6 +174,7 @@ class DummyLlamaAttention(nn.Module):
                 self.num_heads // self.num_key_value_heads, dim=1
             )
         self.last_qk_logits = torch.matmul(query, key.transpose(-2, -1)) * self.scale
+        self.attn_weights = torch.softmax(self.last_qk_logits, dim=-1)
         combined = query_proj + key_proj.mean(dim=-1, keepdim=True) + value_proj.mean(
             dim=-1, keepdim=True
         )
