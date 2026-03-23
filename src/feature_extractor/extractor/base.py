@@ -455,6 +455,9 @@ class BaseFeatureExtractor:
                 layer_idx,
             )
             return None, existing_qk_logits
+        weights = attention_hooks.attn_weights(layer_idx, sample_index)
+        if weights is not None:
+            return weights, existing_qk_logits
         qk_logits = existing_qk_logits
         if qk_logits is None:
             qk_logits = attention_hooks.qk_logits(layer_idx, sample_index)

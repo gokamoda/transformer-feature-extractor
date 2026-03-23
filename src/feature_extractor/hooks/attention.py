@@ -32,13 +32,31 @@ def _extract_attention_logits(module: nn.Module, output: object) -> torch.Tensor
             value = output.get(key)
             if isinstance(value, torch.Tensor):
                 return value
+    return None
+
+
+def _extract_attention_weights(
+    module: nn.Module, output: object
+) -> torch.Tensor | None:
+    for attr in ("attn_weights", "attn_probs", "attention_probs"):
+        value = getattr(module, attr, None)
+        if isinstance(value, torch.Tensor):
+            return value
+    value = getattr(output, "attn_weights", None)
+    if isinstance(value, torch.Tensor):
+        return value
+    value = getattr(output, "attn_probs", None)
+    if isinstance(value, torch.Tensor):
+        return value
+    if isinstance(output, dict):
+        for key in ("attn_weights", "attn_probs", "attention_probs"):
+            value = output.get(key)
+            if isinstance(value, torch.Tensor):
+                return value
     if isinstance(output, (tuple, list)) and len(output) > 1:
-        # Some attention modules return pre-softmax logits as the second element
-        # in tuple outputs like (attn_output, attn_scores, ...), shaped
+        # Some attention modules return post-softmax weights as the second element
+        # in tuple outputs like (attn_output, attn_weights, ...), shaped
         # (batch, heads, seq_len, seq_len).
-        # We assume output[1] is logits when the attention implementation
-        # explicitly documents that contract; there is no reliable runtime check
-        # to distinguish logits from post-softmax weights.
         if isinstance(output[1], torch.Tensor) and output[1].dim() == 4:
             return output[1]
     return None
@@ -196,11 +214,14 @@ class AttentionOutputCache:
     def __init__(self, attn_modules: list[nn.Module]) -> None:
         self.outputs: list[torch.Tensor | None] = [None] * len(attn_modules)
         self.qk_logits: list[torch.Tensor | None] = [None] * len(attn_modules)
+        self.attn_weights: list[torch.Tensor | None] = [None] * len(attn_modules)
         self._hooks = []
         for idx, module in enumerate(attn_modules):
             self._hooks.append(
                 module.register_forward_hook(
-                    self._make_store_hook(self.outputs, self.qk_logits, idx)
+                    self._make_store_hook(
+                        self.outputs, self.qk_logits, self.attn_weights, idx
+                    )
                 )
             )
 
@@ -208,6 +229,7 @@ class AttentionOutputCache:
     def _make_store_hook(
         storage: list[torch.Tensor | None],
         logits_storage: list[torch.Tensor | None],
+        weights_storage: list[torch.Tensor | None],
         index: int,
     ):
         def hook(module, _inputs, output):
@@ -227,6 +249,9 @@ class AttentionOutputCache:
             logits_tensor = _extract_attention_logits(module, output)
             if logits_tensor is not None:
                 logits_storage[index] = logits_tensor.detach()
+            weights_tensor = _extract_attention_weights(module, output)
+            if weights_tensor is not None:
+                weights_storage[index] = weights_tensor.detach()
 
         return hook
 
@@ -234,6 +259,7 @@ class AttentionOutputCache:
         for idx in range(len(self.outputs)):
             self.outputs[idx] = None
             self.qk_logits[idx] = None
+            self.attn_weights[idx] = None
 
     def remove(self) -> None:
         for hook in self._hooks:
@@ -387,6 +413,19 @@ class AttentionHookManager(HookManager):
             )
             raise ValueError(msg)
         return logits[sample_index].detach().cpu()
+
+    def attn_weights(self, layer_idx: int, sample_index: int) -> torch.Tensor | None:
+        """Return attention weights captured from the attention module."""
+        weights = self._attn_output_cache_or_raise().attn_weights[layer_idx]
+        if weights is None:
+            return None
+        if weights.dim() != 4:
+            msg = (
+                "Attention weights must be a 4D tensor "
+                f"(got shape {tuple(weights.shape)})."
+            )
+            raise ValueError(msg)
+        return weights[sample_index].detach().cpu()
 
     def attn_output(self, layer_idx: int, sample_index: int) -> torch.Tensor:
         """Return attention output for the requested layer."""
