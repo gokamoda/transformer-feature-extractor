@@ -1,7 +1,9 @@
+from pathlib import Path
+
 from feature_extractor.configs.schema import FeatureConfig
-from feature_extractor.extractor.base import BaseFeatureExtractor
-from feature_extractor.data.load import load_jsonl_text_dataset
 from feature_extractor.data.dataset import Entry, TextDataset
+from feature_extractor.data.load import load_jsonl_text_dataset
+from feature_extractor.extractor.base import BaseFeatureExtractor
 from torch.utils.data import DataLoader
 
 
@@ -14,7 +16,7 @@ def main(
     extractor = BaseFeatureExtractor(model_name_or_path, feature_cfg)
     dataloader = DataLoader(
         dataset,
-        batch_size=8,
+        batch_size=feature_cfg.batch_size,
         shuffle=False,
         collate_fn=dataset.make_collate_fn(extractor.tokenizer),
     )
@@ -23,27 +25,28 @@ def main(
         break  # just do one batch for testing
 
 if __name__ == "__main__":
-    dataset_path = "outputs/dataset/tinystories/train.jsonl"
-    dataset_raw = load_jsonl_text_dataset(dataset_path)
+    dataset_path = Path("outputs/dataset/tinystories/train.jsonl")
+    if dataset_path.exists():
+        dataset_raw = load_jsonl_text_dataset(dataset_path)
+        entries = [
+            Entry(idx=item.get("idx", idx), text=item["text"])
+            for idx, item in enumerate(dataset_raw)
+        ]
+    else:
+        entries = [
+            Entry(idx=0, text="Hello world."),
+            Entry(idx=1, text="Feature extraction smoke test."),
+        ]
 
-    dataset = TextDataset(
-        data = [Entry(idx=item["idx"], text=item["text"]) for item in dataset_raw]
-    )
+    dataset = TextDataset(data=entries)
     main(
         model_name_or_path="openai-community/gpt2",
         dataset=dataset,
         feature_cfg=FeatureConfig(
             feature_names=[
                 "embeddings",
-                "layer.layer_00.attn_output",
-                "layer.layer_00.ffn_output",
-                "layer.layer_00.output",
-                "attn.layer_00.query",
-                "attn.layer_00.key",
-                "attn.layer_00.value",
-                "attn.layer_00.qk_logits",
-                "attn.layer_00.weights",
-                "mlp.layer_00.activation",
+                "residual.layer_00.pre_attn",
+                "residual.layer_00.post_ffn",
             ],
             output_dir="outputs/features",
             save_format="pt",

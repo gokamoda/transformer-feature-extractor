@@ -44,8 +44,16 @@ class BaseFeatureExtractor:
         self.model.eval()
         for batch in data_loader:
             inputs = self._prepare_batch(batch)
+            model_inputs = {
+                key: value
+                for key, value in inputs.items()
+                if isinstance(value, torch.Tensor)
+            }
+            if "input_ids" not in model_inputs:
+                msg = "Prepared batch does not contain input_ids tensor."
+                raise ValueError(msg)
             outputs = self.model(
-                **inputs, output_hidden_states=True, return_dict=True
+                **model_inputs, output_hidden_states=True, return_dict=True
             )
             hidden_states = outputs.hidden_states
             if hidden_states is None:

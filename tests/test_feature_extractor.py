@@ -72,12 +72,12 @@ def test_extract_features_embeddings_and_residual(monkeypatch):
     )
     extractor = BaseFeatureExtractor("dummy", feature_cfg)
     dataset = [
-        {"input_ids": torch.tensor([1, 2, 3], dtype=torch.long)},
-        {"input_ids": torch.tensor([4, 5, 6], dtype=torch.long)},
+        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)},
+        {"idx": "b", "input_ids": torch.tensor([4, 5, 6], dtype=torch.long)},
     ]
     data_loader = DataLoader(dataset, batch_size=2)
 
-    results = extractor.extract_features(data_loader)
+    results = list(extractor.extract_features(data_loader))
 
     assert len(results) == 2
     assert results[0].embeddings.shape == (3, 4)
@@ -127,7 +127,7 @@ def test_extract_features_with_attention_mask(monkeypatch):
     ]
     data_loader = DataLoader(dataset, batch_size=2)
 
-    results = extractor.extract_features(data_loader)
+    results = list(extractor.extract_features(data_loader))
 
     assert len(results) == 2
     assert model.last_attention_mask is not None
