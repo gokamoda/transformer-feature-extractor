@@ -50,7 +50,10 @@ class BaseFeatureExtractor:
                 if self._is_tensor_input(value)
             }
             if "input_ids" not in model_inputs:
-                msg = "Prepared batch does not contain input_ids tensor."
+                msg = (
+                    "Prepared batch does not contain input_ids tensor. "
+                    f"Available keys: {sorted(model_inputs.keys())}."
+                )
                 raise ValueError(msg)
             outputs = self.model(
                 **model_inputs, output_hidden_states=True, return_dict=True
@@ -143,7 +146,7 @@ class BaseFeatureExtractor:
             return True
         if isinstance(value, (list, tuple)):
             if not value:
-                return True
+                return False
             return all(self._is_tensor_input(item) for item in value)
         return False
 
