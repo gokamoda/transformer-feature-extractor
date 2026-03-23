@@ -1,5 +1,10 @@
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, TokenizersBackend
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    PreTrainedModel,
+    TokenizersBackend,
+)
 
 from utils.logger import init_logging
 

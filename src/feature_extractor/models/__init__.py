@@ -1,4 +1,5 @@
 from .load import load_causal_model, load_tokenizer
+
 SUPPORTED_MODELS = [
     "openai-community/gpt2",
     "meta-llama/Llama-2-7b-hf",

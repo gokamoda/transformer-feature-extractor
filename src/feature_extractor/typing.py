@@ -6,7 +6,7 @@ from typing_extensions import Generic, TypeVarTuple
 T = TypeVarTuple("T")
 
 
-class Tensor(Generic[T], torch.Tensor):  # type: ignore
+class Tensor(Generic[*T], torch.Tensor):  # type: ignore
     pass
 
 

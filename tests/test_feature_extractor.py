@@ -3,10 +3,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import torch
-from feature_extractor.configs.schema import FeatureConfig
-from feature_extractor.extractor.base import BaseFeatureExtractor
 from torch import nn
 from torch.utils.data import DataLoader
+
+from feature_extractor.configs.schema import FeatureConfig
+from feature_extractor.extractor.base import BaseFeatureExtractor
 
 
 class DummyTokenizer:

@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Generator
 
 import torch
+from torch.utils.data import DataLoader
+from transformers import PreTrainedModel, PreTrainedTokenizer
+
 from feature_extractor.configs.schema import FeatureConfig
 from feature_extractor.hooks.results import ExtractorResult, LayerFeatures
 from feature_extractor.models.load import load_causal_model, load_tokenizer
-from torch.utils.data import DataLoader
-from transformers import PreTrainedModel, PreTrainedTokenizer
 
 _RESIDUAL_FEATURE_RE = re.compile(r"residual\.layer_(\d+)\.(pre_attn|post_ffn)")
 
@@ -28,59 +29,56 @@ class BaseFeatureExtractor:
         self.device = self._resolve_device()
         self.feature_cfg = feature_cfg
 
-
+    @torch.no_grad()
     def extract_features(
         self,
         data_loader: DataLoader,
-    ) -> list[ExtractorResult]:
+    ) -> Generator[ExtractorResult, None, None]:
         feature_plan = self._parse_feature_names()
-        results: list[ExtractorResult] = []
         expected_num_layers: int | None = None
 
         self.model.eval()
-        with torch.no_grad():
-            for batch in data_loader:
-                inputs = self._prepare_batch(batch)
-                outputs = self.model(
-                    **inputs, output_hidden_states=True, return_dict=True
+        for batch in data_loader:
+            inputs = self._prepare_batch(batch)
+            outputs = self.model(
+                **inputs, output_hidden_states=True, return_dict=True
+            )
+            hidden_states = outputs.hidden_states
+            if hidden_states is None:
+                msg = "Model did not return hidden states."
+                raise ValueError(msg)
+
+            actual_num_layers = len(hidden_states) - 1
+            if expected_num_layers is None:
+                expected_num_layers = actual_num_layers
+                feature_plan.validate_layer_indices(expected_num_layers)
+            elif actual_num_layers != expected_num_layers:
+                msg = (
+                    "Model returned inconsistent hidden state lengths. "
+                    f"Expected {expected_num_layers + 1} hidden states but got "
+                    f"{len(hidden_states)}."
                 )
-                hidden_states = outputs.hidden_states
-                if hidden_states is None:
-                    msg = "Model did not return hidden states."
-                    raise ValueError(msg)
+                raise ValueError(msg)
 
-                actual_num_layers = len(hidden_states) - 1
-                if expected_num_layers is None:
-                    expected_num_layers = actual_num_layers
-                    feature_plan.validate_layer_indices(expected_num_layers)
-                elif actual_num_layers != expected_num_layers:
-                    msg = (
-                        "Model returned inconsistent hidden state lengths. "
-                        f"Expected {expected_num_layers + 1} hidden states but got "
-                        f"{len(hidden_states)}."
+            batch_size = hidden_states[0].shape[0]
+            for idx in range(batch_size):
+                embeddings = (
+                    hidden_states[0][idx].detach().cpu()
+                    if feature_plan.include_embeddings
+                    else None
+                )
+                layer_features = self._build_layer_features(
+                    hidden_states, idx, feature_plan
+                )
+                yield (
+                    ExtractorResult(
+                        embeddings=embeddings,
+                        layer_features=layer_features,
+                        attention_features=[],
+                        mlp_features=[],
                     )
-                    raise ValueError(msg)
+                )
 
-                batch_size = hidden_states[0].shape[0]
-                for idx in range(batch_size):
-                    embeddings = (
-                        hidden_states[0][idx].detach().cpu()
-                        if feature_plan.include_embeddings
-                        else None
-                    )
-                    layer_features = self._build_layer_features(
-                        hidden_states, idx, feature_plan
-                    )
-                    results.append(
-                        ExtractorResult(
-                            embeddings=embeddings,
-                            layer_features=layer_features,
-                            attention_features=[],
-                            mlp_features=[],
-                        )
-                    )
-
-        return results
 
     def _prepare_batch(self, batch: Any) -> dict[str, Any]:
         if isinstance(batch, dict):
