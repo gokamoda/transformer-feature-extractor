@@ -124,7 +124,7 @@ class BaseFeatureExtractor:
                         "Model did not return attention weights; returning None "
                         "for attention weight features."
                     )
-                if is_sequence and len(attentions) != actual_num_layers:
+                if attentions is not None and is_sequence and len(attentions) != actual_num_layers:
                     msg = (
                         "Model returned inconsistent attention lengths. "
                         f"Expected {actual_num_layers} attention tensors but got "
