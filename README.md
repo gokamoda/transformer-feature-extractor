@@ -1,17 +1,21 @@
+# feature-extractor
 
+## Environment setup
 
-# Usage
-
-- Install dependencies:
-    ```bash
-    make install
-    ```
-- Run the greet command:
-    ```bash
-    make greet
-    ```
-
-- Run greet with overrides:
-    ```bash
-    uv run greet --config configs/debug.yaml --override debug.message=hello
-    ```
+- Install dependencies with uv:
+  ```bash
+  make install
+  ```
+- For Codex or other local automation tools, load the project environment automatically:
+  ```bash
+  direnv allow
+  ```
+- Run linting and formatting:
+  ```bash
+  uv run ruff check .
+  uv run ruff format .
+  ```
+- Run tests:
+  ```bash
+  uv run pytest
+  ```

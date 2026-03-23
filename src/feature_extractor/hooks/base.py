@@ -10,6 +10,7 @@ from utils.logger import init_logging
 
 logger = init_logging(__name__)
 
+
 @dataclass
 class AbstractResult:
     def __repr__(self):

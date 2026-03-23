@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer
 
+
 @dataclass
 class Entry:
     idx: str | int

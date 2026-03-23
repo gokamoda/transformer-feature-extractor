@@ -25,7 +25,7 @@ dependencies = [
 
 
 [project.scripts]
-greet = "feature_extractor.cli.greet:main"
+feature-extractor = "feature_extractor.cli.main:run_demo"
 
 [tool.uv]
 dev-dependencies = [

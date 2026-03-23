@@ -7,8 +7,8 @@ from torch import nn
 
 from feature_extractor.hooks.base import HookManager
 from feature_extractor.models.architecture import (
-    BaseModelArchitecture,
     MLP_IMPLEMENTATION_GATED,
+    BaseModelArchitecture,
 )
 
 _logger = logging.getLogger(__name__)
@@ -89,7 +89,9 @@ class MLPHookManager(HookManager):
         if not mlp_modules:
             msg = "Model does not expose MLP modules for activation capture."
             raise ValueError(msg)
-        self.activation_cache = MLPActivationCache(mlp_modules, self._compute_activation)
+        self.activation_cache = MLPActivationCache(
+            mlp_modules, self._compute_activation
+        )
 
     def reset(self) -> None:
         if self.activation_cache is not None:

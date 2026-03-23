@@ -15,7 +15,6 @@ class ExperimentConfig:
     debug: DebugConfig = field(default_factory=DebugConfig)
 
 
-
 @dataclass
 class FeatureConfig:
     feature_names: list[str] = field(

@@ -3,8 +3,8 @@ from __future__ import annotations
 import logging
 import re
 import warnings
-from contextlib import contextmanager
 from collections.abc import Sequence
+from contextlib import contextmanager
 from typing import Any, Generator
 
 import torch
@@ -121,10 +121,6 @@ class BaseFeatureExtractor:
         self.feature_cfg = feature_cfg
         self.architecture = get_model_architecture(self.model.__class__.__name__)
         self.hook_dtype = hook_dtype
-
-    def register_hooks(self):
-        # For this basic implementation, we don't need to register any hooks
-        pass
 
     @contextmanager
     def _maybe_use_eager_attention(self, output_attentions: bool):
@@ -321,7 +317,6 @@ class BaseFeatureExtractor:
             for manager in hook_managers:
                 manager.remove()
 
-
     def _prepare_batch(self, batch: Any) -> dict[str, Any]:
         if isinstance(batch, dict):
             return self._move_to_device(batch)
@@ -484,9 +479,7 @@ class BaseFeatureExtractor:
             )
             if needs_projections:
                 if attention_hooks is None:
-                    msg = (
-                        "Attention query/key/value features require projection hooks."
-                    )
+                    msg = "Attention query/key/value features require projection hooks."
                     raise ValueError(msg)
                 if layer_idx in feature_plan.attn_query_layers:
                     query = attention_hooks.query(layer_idx, sample_index)
@@ -753,6 +746,8 @@ class _FeaturePlan:
 
     @property
     def needs_attention_hooks(self) -> bool:
-        return bool(self.attn_weights_layers) or self.needs_qkv or bool(
-            self.layer_attn_output_layers or self.attn_qk_logits_layers
+        return (
+            bool(self.attn_weights_layers)
+            or self.needs_qkv
+            or bool(self.layer_attn_output_layers or self.attn_qk_logits_layers)
         )

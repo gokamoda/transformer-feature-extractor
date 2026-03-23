@@ -8,9 +8,9 @@ from torch import nn
 
 from feature_extractor.hooks.base import HookManager
 from feature_extractor.models.architecture import (
-    BaseModelArchitecture,
     QKV_IMPLEMENTATION_CONV1D,
     QKV_IMPLEMENTATION_INDEPENDENT_LINEAR,
+    BaseModelArchitecture,
 )
 
 _logger = logging.getLogger(__name__)
@@ -61,6 +61,7 @@ def _extract_attention_weights(
             return output[1]
     return None
 
+
 @dataclass(frozen=True)
 class AttentionHeadConfig:
     """Shape metadata for attention projections."""
@@ -87,6 +88,7 @@ class AttentionProjectionCache:
     validate_layer_count()
         Ensures hooks match the model's layer count.
     """
+
     def __init__(
         self,
         q_projections: list[nn.Module],
@@ -100,21 +102,15 @@ class AttentionProjectionCache:
         self._hooks = []
         for idx, module in enumerate(q_projections):
             self._hooks.append(
-                module.register_forward_hook(
-                    self._make_store_hook(self.q_outputs, idx)
-                )
+                module.register_forward_hook(self._make_store_hook(self.q_outputs, idx))
             )
         for idx, module in enumerate(k_projections):
             self._hooks.append(
-                module.register_forward_hook(
-                    self._make_store_hook(self.k_outputs, idx)
-                )
+                module.register_forward_hook(self._make_store_hook(self.k_outputs, idx))
             )
         for idx, module in enumerate(v_projections):
             self._hooks.append(
-                module.register_forward_hook(
-                    self._make_store_hook(self.v_outputs, idx)
-                )
+                module.register_forward_hook(self._make_store_hook(self.v_outputs, idx))
             )
 
     @staticmethod
@@ -161,9 +157,7 @@ class CombinedAttentionProjectionCache:
         self.v_outputs: list[torch.Tensor | None] = [None] * len(combined_modules)
         self._hooks = []
         for idx, module in enumerate(combined_modules):
-            self._hooks.append(
-                module.register_forward_hook(self._make_store_hook(idx))
-            )
+            self._hooks.append(module.register_forward_hook(self._make_store_hook(idx)))
 
     def _make_store_hook(self, index: int):
         def hook(_module, _inputs, output):
@@ -299,6 +293,7 @@ class AttentionHookManager(HookManager):
     retrieve logits with ``qk_logits()`` when the attention module exposes them.
     Use ``remove()`` to clean up hooks.
     """
+
     def __init__(
         self,
         model: nn.Module,
@@ -466,7 +461,10 @@ class AttentionHookManager(HookManager):
             self.projection_cache = CombinedAttentionProjectionCache(
                 module_group.combined_modules
             )
-        elif self._architecture.qkv_implementation == QKV_IMPLEMENTATION_INDEPENDENT_LINEAR:
+        elif (
+            self._architecture.qkv_implementation
+            == QKV_IMPLEMENTATION_INDEPENDENT_LINEAR
+        ):
             if not module_group.has_independent:
                 return False
             self.projection_cache = AttentionProjectionCache(
@@ -495,7 +493,10 @@ class AttentionHookManager(HookManager):
                 if hasattr(attn, "c_attn"):
                     combined_modules.append(attn.c_attn)
                 continue
-            if self._architecture.qkv_implementation == QKV_IMPLEMENTATION_INDEPENDENT_LINEAR:
+            if (
+                self._architecture.qkv_implementation
+                == QKV_IMPLEMENTATION_INDEPENDENT_LINEAR
+            ):
                 if not all(
                     hasattr(attn, name) for name in ("q_proj", "k_proj", "v_proj")
                 ):

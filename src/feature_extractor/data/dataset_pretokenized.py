@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer
 
+
 @dataclass
 class PreTokenizedEntry:
     idx: str | int
@@ -29,6 +30,7 @@ class PreTokenizedTextDataset(Dataset):
 
     def __getitem__(self, idx) -> PreTokenizedEntry:
         return self.entries[idx]
+
 
 def make_collate_fn(tokenizer: PreTrainedTokenizer):
     def collate_fn(batch):

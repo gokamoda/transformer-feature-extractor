@@ -9,8 +9,8 @@ from torch.utils.data import DataLoader
 from feature_extractor.configs.schema import FeatureConfig
 from feature_extractor.extractor.base import BaseFeatureExtractor
 from feature_extractor.models.architecture import (
-    BaseModelArchitecture,
     QKV_IMPLEMENTATION_CONV1D,
+    BaseModelArchitecture,
 )
 
 
@@ -75,12 +75,14 @@ class DummyModel(nn.Module):
         if output_attentions:
             batch_size, seq_len = input_ids.shape
             eye = torch.eye(seq_len, dtype=hidden.dtype, device=hidden.device)
-            attn = eye.unsqueeze(0).unsqueeze(0).repeat(
-                batch_size, self.num_heads, 1, 1
+            attn = (
+                eye.unsqueeze(0).unsqueeze(0).repeat(batch_size, self.num_heads, 1, 1)
             )
             attention_layers = [attn.clone() for _ in self.layers]
             attentions = tuple(attention_layers)
-        return SimpleNamespace(hidden_states=tuple(hidden_states), attentions=attentions)
+        return SimpleNamespace(
+            hidden_states=tuple(hidden_states), attentions=attentions
+        )
 
 
 class DummyTensorAttentionModel(nn.Module):
@@ -120,12 +122,14 @@ class DummyTensorAttentionModel(nn.Module):
         if output_attentions:
             batch_size, seq_len = input_ids.shape
             eye = torch.eye(seq_len, dtype=hidden.dtype, device=hidden.device)
-            attn = eye.unsqueeze(0).unsqueeze(0).repeat(
-                batch_size, self.num_heads, 1, 1
+            attn = (
+                eye.unsqueeze(0).unsqueeze(0).repeat(batch_size, self.num_heads, 1, 1)
             )
             attention_layers = [attn.clone() for _ in self.layers]
             attentions = torch.stack(attention_layers, dim=0)
-        return SimpleNamespace(hidden_states=tuple(hidden_states), attentions=attentions)
+        return SimpleNamespace(
+            hidden_states=tuple(hidden_states), attentions=attentions
+        )
 
 
 class DummySDPAModel(DummyModel):
@@ -149,9 +153,7 @@ class DummySDPAModel(DummyModel):
     ):
         # Allow eager overrides to bypass the SDPA error.
         if self.config.attn_implementation == "sdpa" and output_attentions:
-            raise ValueError(
-                "SDPA attention does not support output_attentions=True"
-            )
+            raise ValueError("SDPA attention does not support output_attentions=True")
         return super().forward(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -197,9 +199,7 @@ class DummySDPAFallbackModel(DummyModel):
     ):
         if self.config.attn_implementation == "sdpa" and output_attentions:
             self.sdpa_error_count += 1
-            raise ValueError(
-                "SDPA attention does not support output_attentions=True"
-            )
+            raise ValueError("SDPA attention does not support output_attentions=True")
         return super().forward(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -271,7 +271,9 @@ def _compute_expected_mlp_activation(
 
 
 class DummyLlamaAttention(nn.Module):
-    def __init__(self, hidden_size: int, num_heads: int, num_key_value_heads: int) -> None:
+    def __init__(
+        self, hidden_size: int, num_heads: int, num_key_value_heads: int
+    ) -> None:
         super().__init__()
         head_dim = hidden_size // num_heads
         self.num_heads = num_heads
@@ -302,23 +304,31 @@ class DummyLlamaAttention(nn.Module):
             )
         self.last_qk_logits = torch.matmul(query, key.transpose(-2, -1)) * self.scale
         self.attn_weights = torch.softmax(self.last_qk_logits, dim=-1)
-        combined = query_proj + key_proj.mean(dim=-1, keepdim=True) + value_proj.mean(
-            dim=-1, keepdim=True
+        combined = (
+            query_proj
+            + key_proj.mean(dim=-1, keepdim=True)
+            + value_proj.mean(dim=-1, keepdim=True)
         )
         return self.o_proj(combined)
 
 
 class DummyLlamaLayer(nn.Module):
-    def __init__(self, hidden_size: int, num_heads: int, num_key_value_heads: int) -> None:
+    def __init__(
+        self, hidden_size: int, num_heads: int, num_key_value_heads: int
+    ) -> None:
         super().__init__()
-        self.self_attn = DummyLlamaAttention(hidden_size, num_heads, num_key_value_heads)
+        self.self_attn = DummyLlamaAttention(
+            hidden_size, num_heads, num_key_value_heads
+        )
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.self_attn(hidden_states)
 
 
 class DummyLlamaInner(nn.Module):
-    def __init__(self, hidden_size: int, num_heads: int, num_key_value_heads: int) -> None:
+    def __init__(
+        self, hidden_size: int, num_heads: int, num_key_value_heads: int
+    ) -> None:
         super().__init__()
         self.layers = nn.ModuleList(
             [DummyLlamaLayer(hidden_size, num_heads, num_key_value_heads)]
@@ -326,7 +336,9 @@ class DummyLlamaInner(nn.Module):
 
 
 class DummyLlamaModel(nn.Module):
-    def __init__(self, hidden_size: int, num_heads: int, num_key_value_heads: int) -> None:
+    def __init__(
+        self, hidden_size: int, num_heads: int, num_key_value_heads: int
+    ) -> None:
         super().__init__()
         self.embedding = nn.Embedding(20, hidden_size)
         self.model = DummyLlamaInner(hidden_size, num_heads, num_key_value_heads)
@@ -414,6 +426,7 @@ class DummyGPT2Model(nn.Module):
             hidden = layer(hidden)
             hidden_states.append(hidden)
         return SimpleNamespace(hidden_states=tuple(hidden_states), attentions=None)
+
 
 def test_extract_features_embeddings_and_residual(monkeypatch):
     model = DummyModel(hidden_size=4, num_layers=2)
@@ -503,9 +516,7 @@ def test_extract_features_layer_outputs(monkeypatch):
         feature_names=["layer.layer_00.ffn_output", "layer.layer_00.output"]
     )
     extractor = BaseFeatureExtractor("dummy", feature_cfg)
-    dataset = [
-        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
-    ]
+    dataset = [{"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}]
     data_loader = DataLoader(dataset, batch_size=1)
 
     results = list(extractor.extract_features(data_loader))
@@ -536,9 +547,7 @@ def test_extract_features_with_attention_weights(monkeypatch):
 
     feature_cfg = FeatureConfig(feature_names=["attn.layer_00.weights"])
     extractor = BaseFeatureExtractor("dummy", feature_cfg)
-    dataset = [
-        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
-    ]
+    dataset = [{"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}]
     data_loader = DataLoader(dataset, batch_size=1)
 
     results = list(extractor.extract_features(data_loader))
@@ -557,12 +566,8 @@ def test_extract_features_casts_attention_weights_from_model(monkeypatch):
     _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
 
     feature_cfg = FeatureConfig(feature_names=["attn.layer_00.weights"])
-    extractor = BaseFeatureExtractor(
-        "dummy", feature_cfg, hook_dtype=torch.float16
-    )
-    dataset = [
-        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
-    ]
+    extractor = BaseFeatureExtractor("dummy", feature_cfg, hook_dtype=torch.float16)
+    dataset = [{"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}]
     data_loader = DataLoader(dataset, batch_size=1)
 
     results = list(extractor.extract_features(data_loader))
@@ -581,9 +586,7 @@ def test_extract_features_with_tensor_attentions(monkeypatch):
 
     feature_cfg = FeatureConfig(feature_names=["attn.layer_00.weights"])
     extractor = BaseFeatureExtractor("dummy", feature_cfg)
-    dataset = [
-        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
-    ]
+    dataset = [{"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}]
     data_loader = DataLoader(dataset, batch_size=1)
 
     results = list(extractor.extract_features(data_loader))
@@ -611,9 +614,7 @@ def test_extract_features_with_sdpa_attention_override(monkeypatch):
 
     feature_cfg = FeatureConfig(feature_names=["attn.layer_00.weights"])
     extractor = BaseFeatureExtractor("dummy", feature_cfg)
-    dataset = [
-        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
-    ]
+    dataset = [{"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}]
     data_loader = DataLoader(dataset, batch_size=1)
 
     results = list(extractor.extract_features(data_loader))
@@ -638,9 +639,7 @@ def test_extract_features_with_sdpa_attention_fallback(monkeypatch):
 
     feature_cfg = FeatureConfig(feature_names=["attn.layer_00.weights"])
     extractor = BaseFeatureExtractor("dummy", feature_cfg)
-    dataset = [
-        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
-    ]
+    dataset = [{"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}]
     data_loader = DataLoader(dataset, batch_size=1)
 
     results = list(extractor.extract_features(data_loader))
@@ -659,9 +658,7 @@ def test_extract_features_with_attention_weights_fallback(monkeypatch):
 
     feature_cfg = FeatureConfig(feature_names=["attn.layer_00.weights"])
     extractor = BaseFeatureExtractor("dummy", feature_cfg)
-    dataset = [
-        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
-    ]
+    dataset = [{"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}]
     data_loader = DataLoader(dataset, batch_size=1)
 
     results = list(extractor.extract_features(data_loader))
@@ -683,9 +680,7 @@ def test_extract_features_with_layer_attn_output(monkeypatch):
 
     feature_cfg = FeatureConfig(feature_names=["layer.layer_00.attn_output"])
     extractor = BaseFeatureExtractor("dummy", feature_cfg)
-    dataset = [
-        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
-    ]
+    dataset = [{"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}]
     data_loader = DataLoader(dataset, batch_size=1)
 
     results = list(extractor.extract_features(data_loader))
@@ -710,12 +705,8 @@ def test_extract_features_casts_layer_output(monkeypatch):
     _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
 
     feature_cfg = FeatureConfig(feature_names=["layer.layer_00.output"])
-    extractor = BaseFeatureExtractor(
-        "dummy", feature_cfg, hook_dtype=torch.float16
-    )
-    dataset = [
-        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
-    ]
+    extractor = BaseFeatureExtractor("dummy", feature_cfg, hook_dtype=torch.float16)
+    dataset = [{"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}]
     data_loader = DataLoader(dataset, batch_size=1)
 
     results = list(extractor.extract_features(data_loader))
@@ -741,9 +732,7 @@ def test_extract_features_with_qkv_gqa(monkeypatch):
         ]
     )
     extractor = BaseFeatureExtractor("dummy", feature_cfg)
-    dataset = [
-        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
-    ]
+    dataset = [{"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}]
     data_loader = DataLoader(dataset, batch_size=1)
 
     results = list(extractor.extract_features(data_loader))
@@ -774,12 +763,8 @@ def test_extract_features_casts_hook_tensors(monkeypatch):
             "layer.layer_00.attn_output",
         ]
     )
-    extractor = BaseFeatureExtractor(
-        "dummy", feature_cfg, hook_dtype=torch.float16
-    )
-    dataset = [
-        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
-    ]
+    extractor = BaseFeatureExtractor("dummy", feature_cfg, hook_dtype=torch.float16)
+    dataset = [{"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}]
     data_loader = DataLoader(dataset, batch_size=1)
 
     results = list(extractor.extract_features(data_loader))
@@ -818,9 +803,7 @@ def test_extract_features_with_conv1d_qkv(monkeypatch):
 
     feature_cfg = FeatureConfig(feature_names=["attn.layer_00.query"])
     extractor = BaseFeatureExtractor("dummy", feature_cfg)
-    dataset = [
-        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
-    ]
+    dataset = [{"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}]
     data_loader = DataLoader(dataset, batch_size=1)
 
     results = list(extractor.extract_features(data_loader))
@@ -839,9 +822,7 @@ def test_extract_features_with_mlp_activation(monkeypatch):
 
     feature_cfg = FeatureConfig(feature_names=["mlp.layer_00.activation"])
     extractor = BaseFeatureExtractor("dummy", feature_cfg)
-    dataset = [
-        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
-    ]
+    dataset = [{"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}]
     data_loader = DataLoader(dataset, batch_size=1)
 
     results = list(extractor.extract_features(data_loader))
@@ -867,12 +848,8 @@ def test_extract_features_casts_mlp_activation(monkeypatch):
     _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
 
     feature_cfg = FeatureConfig(feature_names=["mlp.layer_00.activation"])
-    extractor = BaseFeatureExtractor(
-        "dummy", feature_cfg, hook_dtype=torch.float16
-    )
-    dataset = [
-        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
-    ]
+    extractor = BaseFeatureExtractor("dummy", feature_cfg, hook_dtype=torch.float16)
+    dataset = [{"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}]
     data_loader = DataLoader(dataset, batch_size=1)
 
     results = list(extractor.extract_features(data_loader))
