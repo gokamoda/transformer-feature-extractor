@@ -1,5 +1,8 @@
 # DEV Specifications
 
+## Project Goal
+- Provide a flexible, model-agnostic feature extraction toolkit for transformer architectures, enabling consistent retrieval and saving of internal representations (e.g., embeddings, hidden states, attention, MLP, and norm outputs) across model families.
+
 ## Supported Model Types
 - Positional Encoding
     - RoPE
@@ -39,4 +42,3 @@
 ## Saving
 - save in torch .pt format
 - save path should be `{output_dir}/{dataset_name}/{model_name}/{feature_name}/{sentence_id}.pt`
-
