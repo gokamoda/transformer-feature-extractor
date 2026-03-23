@@ -133,7 +133,7 @@ class BaseFeatureExtractor:
             if not hasattr(config, attr):
                 continue
             value = getattr(config, attr)
-            if not isinstance(value, str) or value != "sdpa":
+            if not (isinstance(value, str) and value == "sdpa"):
                 continue
             originals[attr] = value
             setattr(config, attr, "eager")
