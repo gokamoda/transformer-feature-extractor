@@ -144,6 +144,21 @@ class BaseFeatureExtractor:
         return parameter.device
 
     def _is_tensor_input(self, value: Any, depth: int = 0) -> bool:
+        """Return True for tensor-like inputs passed to the model.
+
+        Parameters
+        ----------
+        value : Any
+            Candidate input value to inspect.
+        depth : int
+            Current nesting depth for list/tuple inspection.
+
+        Returns
+        -------
+        bool
+            True when the value is a tensor or a nested list/tuple of tensors
+            within the allowed nesting depth.
+        """
         if isinstance(value, torch.Tensor):
             return True
         if isinstance(value, (list, tuple)):

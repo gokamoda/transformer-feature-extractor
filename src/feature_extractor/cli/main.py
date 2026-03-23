@@ -1,9 +1,9 @@
 from pathlib import Path
 
 from feature_extractor.configs.schema import FeatureConfig
+from feature_extractor.extractor.base import BaseFeatureExtractor
 from feature_extractor.data.dataset import Entry, TextDataset
 from feature_extractor.data.load import load_jsonl_text_dataset
-from feature_extractor.extractor.base import BaseFeatureExtractor
 from torch.utils.data import DataLoader
 
 DEFAULT_DATASET_PATH = Path("outputs/dataset/tinystories/train.jsonl")
