@@ -369,7 +369,12 @@ class BaseFeatureExtractor:
             key = None
             value = None
             qk_logits = None
-            if feature_plan.needs_qkv:
+            needs_projections = (
+                layer_idx in feature_plan.attn_query_layers
+                or layer_idx in feature_plan.attn_key_layers
+                or layer_idx in feature_plan.attn_value_layers
+            )
+            if needs_projections:
                 if attention_hooks is None:
                     msg = (
                         "Attention query/key/value features require projection hooks."
