@@ -17,7 +17,22 @@ class AttentionHeadConfig:
 
 
 class AttentionProjectionCache:
-    """Caches per-layer attention projection outputs captured by hooks."""
+    """Caches per-layer attention projection outputs captured by hooks.
+
+    Attributes
+    ----------
+    q_outputs, k_outputs, v_outputs
+        Per-layer tensors captured from the projection modules.
+
+    Methods
+    -------
+    reset()
+        Clears cached tensors between forward passes.
+    remove()
+        Removes all registered hooks.
+    validate_layer_count()
+        Ensures hooks match the model's layer count.
+    """
     def __init__(
         self,
         q_projections: list[nn.Module],
@@ -80,7 +95,12 @@ class AttentionProjectionCache:
 
 
 class AttentionHookManager:
-    """Manage attention hooks and reshape captured projections."""
+    """Manage attention hooks and reshape captured projections.
+
+    Use ``install()`` once before inference, then call ``reset()`` per batch.
+    Access per-layer projections via ``query()``, ``key()``, and ``value()``, and
+    compute logits with ``qk_logits()``. Use ``remove()`` to clean up hooks.
+    """
     def __init__(self, model: nn.Module) -> None:
         self._model = model
         self.projection_cache: AttentionProjectionCache | None = None
