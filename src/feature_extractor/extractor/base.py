@@ -397,13 +397,11 @@ class BaseFeatureExtractor:
                 if attentions is not None:
                     weights = attentions[layer_idx][sample_index].detach().cpu()
                 else:
-                    (weights, qk_logits) = (
-                        self._compute_attention_weights_fallback(
-                            attention_hooks,
-                            layer_idx,
-                            sample_index,
-                            qk_logits,
-                        )
+                    weights, qk_logits = self._compute_attention_weights_fallback(
+                        attention_hooks,
+                        layer_idx,
+                        sample_index,
+                        qk_logits,
                     )
             attention_features.append(
                 AttentionFeatures(

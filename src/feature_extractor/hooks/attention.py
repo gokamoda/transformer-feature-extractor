@@ -21,14 +21,12 @@ def _resolve_qk_logits(module: nn.Module, output: object) -> torch.Tensor | None
         value = getattr(module, attr, None)
         if isinstance(value, torch.Tensor):
             return value
-    if hasattr(output, "attn_logits"):
-        value = getattr(output, "attn_logits", None)
-        if isinstance(value, torch.Tensor):
-            return value
-    if hasattr(output, "attn_scores"):
-        value = getattr(output, "attn_scores", None)
-        if isinstance(value, torch.Tensor):
-            return value
+    value = getattr(output, "attn_logits", None)
+    if isinstance(value, torch.Tensor):
+        return value
+    value = getattr(output, "attn_scores", None)
+    if isinstance(value, torch.Tensor):
+        return value
     if isinstance(output, dict):
         for key in ("attn_logits", "attn_scores"):
             value = output.get(key)
