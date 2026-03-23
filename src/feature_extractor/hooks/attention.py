@@ -118,8 +118,8 @@ class AttentionHookManager(HookManager):
         super().__init__(model, architecture)
         self.projection_cache: AttentionProjectionCache | None = None
         self.head_config: AttentionHeadConfig | None = None
-        self._warned_layers_fallback = False
-        self._warned_attn_fallback = False
+        self._warned_layers = False
+        self._warned_attn = False
 
     def install(self) -> None:
         """Install projection hooks and resolve attention head metadata."""
@@ -205,12 +205,13 @@ class AttentionHookManager(HookManager):
         model_root = getattr(model, architecture.model_field, model)
         layers = getattr(model_root, architecture.layer_field, None)
         if layers is None:
-            if not self._warned_layers_fallback:
+            if not self._warned_layers:
                 self._warn_architecture_fallback(
                     "layers",
                     f"{architecture.model_field}.{architecture.layer_field}",
+                    "model.layers / layers / transformer.h",
                 )
-                self._warned_layers_fallback = True
+                self._warned_layers = True
             if hasattr(model, "model") and hasattr(model.model, "layers"):
                 layers = model.model.layers
             elif hasattr(model, "layers"):
@@ -226,9 +227,13 @@ class AttentionHookManager(HookManager):
         for layer in layers:
             attn = getattr(layer, architecture.attn_field, None)
             if attn is None:
-                if not self._warned_attn_fallback:
-                    self._warn_architecture_fallback("attention", architecture.attn_field)
-                    self._warned_attn_fallback = True
+                if not self._warned_attn:
+                    self._warn_architecture_fallback(
+                        "attention",
+                        architecture.attn_field,
+                        "self_attn / attn",
+                    )
+                    self._warned_attn = True
                 attn = getattr(layer, "self_attn", None) or getattr(layer, "attn", None)
             if attn is None:
                 continue
@@ -240,13 +245,18 @@ class AttentionHookManager(HookManager):
         return (q_modules, k_modules, v_modules)
 
     @staticmethod
-    def _warn_architecture_fallback(target: str, field: str) -> None:
+    def _warn_architecture_fallback(
+        target: str,
+        field: str,
+        fallback: str,
+    ) -> None:
         _logger.warning(
             "Model architecture config did not resolve %s via %s; falling back to "
-            "default attributes. Please verify your BaseModelArchitecture settings "
+            "%s. Please verify your BaseModelArchitecture settings "
             "if you are using a custom architecture.",
             target,
             field,
+            fallback,
         )
 
     def _resolve_attention_head_config(self) -> AttentionHeadConfig:
