@@ -121,7 +121,7 @@ class AttentionHookManager(HookManager):
         self._warned_layer_fallback = False
         self._warned_attention_fallback = False
 
-    def install(self, *, required: bool = True) -> bool:
+    def install(self, *, required: bool = True) -> None:
         """Install projection hooks and resolve attention head metadata.
 
         Parameters
@@ -130,11 +130,6 @@ class AttentionHookManager(HookManager):
             When True, raise if q/k/v projections cannot be resolved. When False,
             return False if hooks could not be installed.
 
-        Returns
-        -------
-        bool
-            True when hooks were installed. Returns False only when required is False
-            and projections are unavailable. Raises ValueError when required is True.
         """
         q_modules, k_modules, v_modules = self._resolve_qkv_modules()
         if not q_modules:
@@ -142,10 +137,9 @@ class AttentionHookManager(HookManager):
             if required:
                 raise ValueError(msg)
             _logger.warning("%s Falling back to model-provided attentions.", msg)
-            return False
+            return
         self.projection_cache = AttentionProjectionCache(q_modules, k_modules, v_modules)
         self.head_config = self._resolve_attention_head_config()
-        return True
 
     def reset(self) -> None:
         """Clear cached projections after each forward pass."""

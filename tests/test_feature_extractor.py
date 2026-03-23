@@ -130,7 +130,7 @@ class DummyMLPModel(nn.Module):
         return SimpleNamespace(hidden_states=tuple(hidden_states), attentions=None)
 
 
-def _expected_dummy_mlp_activation(
+def _compute_expected_mlp_activation(
     model: DummyMLPModel,
     input_ids: torch.Tensor,
     layer_idx: int = 0,
@@ -419,7 +419,7 @@ def test_extract_features_with_mlp_activation(monkeypatch):
     assert activation.shape == (3, 6)
 
     with torch.no_grad():
-        expected = _expected_dummy_mlp_activation(
+        expected = _compute_expected_mlp_activation(
             model,
             torch.stack([item["input_ids"] for item in dataset]),
         )[0]

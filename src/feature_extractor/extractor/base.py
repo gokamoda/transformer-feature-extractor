@@ -97,8 +97,8 @@ class BaseFeatureExtractor:
             attention_hooks = AttentionHookManager(
                 self.model, architecture=self.architecture
             )
-            installed = attention_hooks.install(required=feature_plan.needs_qkv)
-            if installed:
+            attention_hooks.install(required=feature_plan.needs_qkv)
+            if attention_hooks.projection_cache is not None:
                 hook_managers.append(attention_hooks)
             else:
                 attention_hooks = None
@@ -382,18 +382,15 @@ class BaseFeatureExtractor:
                 if attentions is not None:
                     weights = attentions[layer_idx][sample_index].detach().cpu()
                 else:
-                    (
-                        weights,
-                        qk_logits,
-                        query,
-                        key,
-                    ) = self._compute_attention_weights_fallback(
-                        attention_hooks,
-                        layer_idx,
-                        sample_index,
-                        query,
-                        key,
-                        qk_logits,
+                    (weights, qk_logits, query, key) = (
+                        self._compute_attention_weights_fallback(
+                            attention_hooks,
+                            layer_idx,
+                            sample_index,
+                            query,
+                            key,
+                            qk_logits,
+                        )
                     )
             attention_features.append(
                 AttentionFeatures(
