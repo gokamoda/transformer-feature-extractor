@@ -222,5 +222,5 @@ class HookManager:
             hook.remove()
         self._hooks.clear()
 
-    def validate_layer_count(self, _expected: int) -> None:
+    def validate_layer_count(self, expected_layer_count: int) -> None:
         """Validate hook count matches expected layers (no-op by default)."""

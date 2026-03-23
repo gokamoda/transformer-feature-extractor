@@ -205,7 +205,8 @@ class AttentionHookManager(HookManager):
         if layers is None:
             _logger.warning(
                 "Model architecture config did not resolve layers via %s.%s; "
-                "falling back to default layer attributes.",
+                "falling back to default layer attributes. Please verify your "
+                "BaseModelArchitecture settings if you are using a custom architecture.",
                 architecture.model_field,
                 architecture.layer_field,
             )
@@ -226,7 +227,8 @@ class AttentionHookManager(HookManager):
             if attn is None:
                 _logger.warning(
                     "Model architecture config did not resolve attention via %s; "
-                    "falling back to default attention attributes.",
+                    "falling back to default attention attributes. Please verify your "
+                    "BaseModelArchitecture settings if you are using a custom architecture.",
                     architecture.attn_field,
                 )
                 attn = getattr(layer, "self_attn", None) or getattr(layer, "attn", None)
