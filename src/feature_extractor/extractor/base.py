@@ -52,7 +52,8 @@ class BaseFeatureExtractor:
             if "input_ids" not in model_inputs:
                 msg = (
                     "Prepared batch does not contain input_ids tensor. "
-                    f"Available keys: {sorted(model_inputs.keys())}."
+                    f"Available keys: {sorted(model_inputs.keys())}. "
+                    "Ensure the collate function returns input_ids tensors."
                 )
                 raise ValueError(msg)
             outputs = self.model(
@@ -147,7 +148,10 @@ class BaseFeatureExtractor:
         if isinstance(value, (list, tuple)):
             if not value:
                 return False
-            return all(self._is_tensor_input(item) for item in value)
+            for item in value:
+                if not self._is_tensor_input(item):
+                    return False
+            return True
         return False
 
     def _move_to_device(self, batch: dict[str, Any]) -> dict[str, Any]:
