@@ -61,7 +61,7 @@ class DummyModel(nn.Module):
         attentions = None
         if output_attentions:
             batch_size, seq_len = input_ids.shape
-            eye = torch.eye(seq_len, dtype=hidden.dtype)
+            eye = torch.eye(seq_len, dtype=hidden.dtype, device=hidden.device)
             attn = eye.unsqueeze(0).unsqueeze(0).repeat(
                 batch_size, self.num_heads, 1, 1
             )
@@ -82,8 +82,10 @@ class DummyLlamaAttention(nn.Module):
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         query = self.q_proj(hidden_states)
-        _ = self.k_proj(hidden_states)
-        _ = self.v_proj(hidden_states)
+        key = self.k_proj(hidden_states)
+        value = self.v_proj(hidden_states)
+        query = query + (key.sum(dim=-1, keepdim=True) * 0)
+        query = query + (value.sum(dim=-1, keepdim=True) * 0)
         return self.o_proj(query)
 
 

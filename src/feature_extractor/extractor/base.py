@@ -453,13 +453,6 @@ class BaseFeatureExtractor:
         projection = projection.transpose(1, 2)
         if num_attention_heads is not None and projection_heads != num_attention_heads:
             head_expansion_factor = num_attention_heads // projection_heads
-            if num_attention_heads % projection_heads != 0:
-                msg = (
-                    "Cannot expand GQA heads "
-                    f"(num_attention_heads={num_attention_heads}, "
-                    f"num_key_value_heads={projection_heads})."
-                )
-                raise ValueError(msg)
             projection = projection.repeat_interleave(head_expansion_factor, dim=1)
         return projection[sample_index].detach().cpu()
 
