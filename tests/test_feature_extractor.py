@@ -65,9 +65,8 @@ class DummyModel(nn.Module):
             attn = eye.unsqueeze(0).unsqueeze(0).repeat(
                 batch_size, self.num_heads, 1, 1
             )
-            attentions = tuple(
-                attn.clone() for _ in self.layers
-            )
+            attention_layers = [attn.clone() for _ in self.layers]
+            attentions = tuple(attention_layers)
         return SimpleNamespace(hidden_states=tuple(hidden_states), attentions=attentions)
 
 
