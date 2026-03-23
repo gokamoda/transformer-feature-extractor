@@ -32,7 +32,7 @@ _ATTN_FEATURE_RE = re.compile(r"attn\.layer_(\d+)\.(query|key|value|qk_logits|we
 _MLP_FEATURE_RE = re.compile(r"mlp\.layer_(\d+)\.activation")
 _MAX_TENSOR_NESTING_DEPTH = 3
 _SDPA_OUTPUT_ATTENTION_ERROR_RE = re.compile(
-    r"\bsdpa\b.*\boutput_attentions\b", re.IGNORECASE
+    r"\bsdpa attention\b.*\boutput_attentions\b", re.IGNORECASE
 )
 _logger = logging.getLogger(__name__)
 
@@ -238,13 +238,17 @@ class BaseFeatureExtractor:
                             if used_eager:
                                 _logger.warning(
                                     "Model does not support output_attentions with "
-                                    "sdpa even after switching to eager; retrying "
-                                    "without output_attentions."
+                                    "sdpa even after switching to eager (%s: %s); "
+                                    "retrying without output_attentions.",
+                                    type(exc).__name__,
+                                    exc,
                                 )
                             else:
                                 _logger.warning(
                                     "Model does not support output_attentions with "
-                                    "sdpa; retrying without output_attentions."
+                                    "sdpa (%s: %s); retrying without output_attentions.",
+                                    type(exc).__name__,
+                                    exc,
                                 )
                             outputs = self.model(
                                 **model_inputs,

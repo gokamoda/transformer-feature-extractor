@@ -136,7 +136,7 @@ class DummySDPAModel(DummyModel):
             hidden_size=hidden_size, num_layers=num_layers, num_heads=num_heads
         )
         self.config = SimpleNamespace(attn_implementation="sdpa")
-        self.forward_attn_implementation: str | None = None
+        self.captured_attn_implementation: str | None = None
 
     def forward(
         self,
@@ -148,7 +148,7 @@ class DummySDPAModel(DummyModel):
         return_dict: bool | None = None,
         **kwargs,
     ):
-        self.forward_attn_implementation = self.config.attn_implementation
+        self.captured_attn_implementation = self.config.attn_implementation
         if self.config.attn_implementation == "sdpa" and output_attentions:
             raise ValueError(
                 "SDPA attention does not support output_attentions=True"
@@ -542,7 +542,7 @@ def test_extract_features_with_sdpa_attention_override(monkeypatch):
 
     assert len(results) == 1
     assert model.last_output_attentions is True
-    assert model.forward_attn_implementation == "eager"
+    assert model.captured_attn_implementation == "eager"
     assert model.config.attn_implementation == "sdpa"
     weights = results[0].attention_features[0].attn_weights
     assert weights is not None
