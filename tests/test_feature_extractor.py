@@ -22,12 +22,15 @@ class DummyTokenizer:
 
 
 class DummyModel(nn.Module):
-    def __init__(self, hidden_size: int = 4, num_layers: int = 2) -> None:
+    def __init__(
+        self, hidden_size: int = 4, num_layers: int = 2, num_heads: int = 1
+    ) -> None:
         super().__init__()
         self.embedding = nn.Embedding(20, hidden_size)
         self.layers = nn.ModuleList(
             [nn.Linear(hidden_size, hidden_size) for _ in range(num_layers)]
         )
+        self.num_heads = num_heads
         self.last_attention_mask: torch.Tensor | None = None
         self.last_output_attentions: bool | None = None
         self.extra_keys: tuple[str, ...] = ()
@@ -60,7 +63,8 @@ class DummyModel(nn.Module):
             batch_size, seq_len = input_ids.shape
             attentions = tuple(
                 torch.ones(
-                    (batch_size, 1, seq_len, seq_len), dtype=hidden.dtype
+                    (batch_size, self.num_heads, seq_len, seq_len),
+                    dtype=hidden.dtype,
                 )
                 for _ in self.layers
             )

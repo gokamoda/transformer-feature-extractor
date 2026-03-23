@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 from typing import Any, Generator
 
@@ -328,9 +329,8 @@ class BaseFeatureExtractor:
                             "Attention qk_logits requested but projections were missing."
                         )
                         raise ValueError(msg)
-                    qk_logits = (
-                        torch.matmul(query, key.transpose(-2, -1))
-                        / head_config.head_dim**0.5
+                    qk_logits = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(
+                        head_config.head_dim
                     )
             weights = (
                 attentions[layer_idx][sample_index].detach().cpu()
@@ -448,6 +448,7 @@ class BaseFeatureExtractor:
             )
             raise ValueError(msg)
         projection = projection.view(batch_size, seq_len, projection_heads, head_dim)
+        # (batch, seq, heads, head_dim) -> (batch, heads, seq, head_dim)
         projection = projection.transpose(1, 2)
         if num_attention_heads is not None and projection_heads != num_attention_heads:
             repeat_factor = num_attention_heads // projection_heads
