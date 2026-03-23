@@ -39,6 +39,7 @@ class AttentionProjectionCache:
         k_projections: list[nn.Module],
         v_projections: list[nn.Module],
     ) -> None:
+        """Register hooks for per-layer q/k/v projection outputs."""
         self.q_outputs: list[torch.Tensor | None] = [None] * len(q_projections)
         self.k_outputs: list[torch.Tensor | None] = [None] * len(k_projections)
         self.v_outputs: list[torch.Tensor | None] = [None] * len(v_projections)
@@ -76,15 +77,18 @@ class AttentionProjectionCache:
         return hook
 
     def reset(self) -> None:
+        """Clear cached projection outputs between batches."""
         for storage in (self.q_outputs, self.k_outputs, self.v_outputs):
             for idx in range(len(storage)):
                 storage[idx] = None
 
     def remove(self) -> None:
+        """Remove all registered hooks."""
         for hook in self._hooks:
             hook.remove()
 
     def validate_layer_count(self, expected: int) -> None:
+        """Ensure the cached projections match the model layer count."""
         actual = len(self.q_outputs)
         if actual != expected:
             msg = (
@@ -102,11 +106,13 @@ class AttentionHookManager:
     compute logits with ``qk_logits()``. Use ``remove()`` to clean up hooks.
     """
     def __init__(self, model: nn.Module) -> None:
+        """Initialize the manager for the provided model."""
         self._model = model
         self.projection_cache: AttentionProjectionCache | None = None
         self.head_config: AttentionHeadConfig | None = None
 
     def install(self) -> None:
+        """Install projection hooks and resolve attention head metadata."""
         q_modules, k_modules, v_modules = self._resolve_qkv_modules()
         if not q_modules:
             msg = "Model does not expose q/k/v projection modules."
@@ -115,18 +121,22 @@ class AttentionHookManager:
         self.head_config = self._resolve_attention_head_config()
 
     def reset(self) -> None:
+        """Clear cached projections after each forward pass."""
         if self.projection_cache is not None:
             self.projection_cache.reset()
 
     def remove(self) -> None:
+        """Remove installed hooks."""
         if self.projection_cache is not None:
             self.projection_cache.remove()
 
     def validate_layer_count(self, expected: int) -> None:
+        """Validate the number of hooks matches the model layer count."""
         if self.projection_cache is not None:
             self.projection_cache.validate_layer_count(expected)
 
     def query(self, layer_idx: int, sample_index: int) -> torch.Tensor:
+        """Return per-head query projection for the requested layer."""
         return self._prepare_attention_projection(
             self._projection_cache_or_raise().q_outputs,
             layer_idx,
@@ -136,6 +146,7 @@ class AttentionHookManager:
         )
 
     def key(self, layer_idx: int, sample_index: int) -> torch.Tensor:
+        """Return per-head key projection for the requested layer."""
         head_config = self._head_config_or_raise()
         return self._prepare_attention_projection(
             self._projection_cache_or_raise().k_outputs,
@@ -147,6 +158,7 @@ class AttentionHookManager:
         )
 
     def value(self, layer_idx: int, sample_index: int) -> torch.Tensor:
+        """Return per-head value projection for the requested layer."""
         head_config = self._head_config_or_raise()
         return self._prepare_attention_projection(
             self._projection_cache_or_raise().v_outputs,
@@ -158,6 +170,7 @@ class AttentionHookManager:
         )
 
     def qk_logits(self, query: torch.Tensor, key: torch.Tensor) -> torch.Tensor:
+        """Compute scaled dot-product attention logits."""
         scaling_factor = 1.0 / math.sqrt(self._head_config_or_raise().head_dim)
         return torch.matmul(query, key.transpose(-2, -1)) * scaling_factor
 
