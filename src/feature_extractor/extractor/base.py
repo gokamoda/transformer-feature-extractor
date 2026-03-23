@@ -214,41 +214,40 @@ class BaseFeatureExtractor:
                         "Ensure the collate function returns input_ids tensors."
                     )
                     raise ValueError(msg)
-                used_eager = False
-                try:
-                    with self._maybe_use_eager_attention(
-                        feature_plan.needs_attentions
-                    ) as used_eager:
+                with self._maybe_use_eager_attention(
+                    feature_plan.needs_attentions
+                ) as used_eager:
+                    try:
                         outputs = self.model(
                             **model_inputs,
                             output_hidden_states=True,
                             output_attentions=feature_plan.needs_attentions,
                             return_dict=True,
                         )
-                except (ValueError, RuntimeError) as exc:
-                    if (
-                        feature_plan.needs_attentions
-                        and _is_sdpa_output_attentions_error(exc)
-                    ):
-                        if used_eager:
-                            _logger.warning(
-                                "Model does not support output_attentions with "
-                                "sdpa even after switching to eager; retrying "
-                                "without output_attentions."
+                    except (ValueError, RuntimeError) as exc:
+                        if (
+                            feature_plan.needs_attentions
+                            and _is_sdpa_output_attentions_error(exc)
+                        ):
+                            if used_eager:
+                                _logger.warning(
+                                    "Model does not support output_attentions with "
+                                    "sdpa even after switching to eager; retrying "
+                                    "without output_attentions."
+                                )
+                            else:
+                                _logger.warning(
+                                    "Model does not support output_attentions with "
+                                    "sdpa; retrying without output_attentions."
+                                )
+                            outputs = self.model(
+                                **model_inputs,
+                                output_hidden_states=True,
+                                output_attentions=False,
+                                return_dict=True,
                             )
                         else:
-                            _logger.warning(
-                                "Model does not support output_attentions with "
-                                "sdpa; retrying without output_attentions."
-                            )
-                        outputs = self.model(
-                            **model_inputs,
-                            output_hidden_states=True,
-                            output_attentions=False,
-                            return_dict=True,
-                        )
-                    else:
-                        raise
+                            raise
                 hidden_states = outputs.hidden_states
                 if hidden_states is None:
                     msg = "Model did not return hidden states."
