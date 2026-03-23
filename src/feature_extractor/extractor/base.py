@@ -31,6 +31,34 @@ def _is_proper_sequence(value: object) -> bool:
     return isinstance(value, Sequence) and not isinstance(value, (str, bytes))
 
 
+def _normalize_attentions(
+    attentions: object, *, needs_attentions: bool
+) -> tuple[object | None, bool]:
+    is_sequence = False
+    missing_attentions = attentions is None
+    if attentions is not None:
+        if _is_proper_sequence(attentions):
+            if len(attentions) == 0:
+                missing_attentions = True
+                attentions = None
+            else:
+                is_sequence = True
+        else:
+            _logger.warning(
+                "Model returned attention weights in unsupported format "
+                f"{type(attentions)}; returning None for attention weight "
+                "features."
+            )
+            missing_attentions = True
+            attentions = None
+    if needs_attentions and missing_attentions:
+        _logger.warning(
+            "Model did not return attention weights; returning None "
+            "for attention weight features."
+        )
+    return attentions, is_sequence
+
+
 class BaseFeatureExtractor:
     model: PreTrainedModel
     tokenizer: PreTrainedTokenizer
@@ -107,29 +135,10 @@ class BaseFeatureExtractor:
                         f"{len(hidden_states)}."
                     )
                     raise ValueError(msg)
-                missing_attentions = attentions is None
-                is_sequence = False
-                if attentions is not None:
-                    if _is_proper_sequence(attentions):
-                        if len(attentions) == 0:
-                            missing_attentions = True
-                            attentions = None
-                        else:
-                            is_sequence = True
-                    else:
-                        _logger.warning(
-                            "Model returned attention weights in unsupported format "
-                            f"{type(attentions)}; returning None for attention weight "
-                            "features."
-                        )
-                        missing_attentions = True
-                        attentions = None
-                if feature_plan.needs_attentions and missing_attentions:
-                    _logger.warning(
-                        "Model did not return attention weights; returning None "
-                        "for attention weight features."
-                    )
-                if is_sequence and len(attentions) != actual_num_layers:
+                attentions, is_sequence = _normalize_attentions(
+                    attentions, needs_attentions=feature_plan.needs_attentions
+                )
+                if is_sequence and attentions is not None and len(attentions) != actual_num_layers:
                     msg = (
                         "Model returned inconsistent attention lengths. "
                         f"Expected {actual_num_layers} attention tensors but got "
