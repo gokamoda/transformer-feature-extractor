@@ -1,5 +1,5 @@
 [project]
-name = "project"
+name = "feature-extractor"
 version = "0.1.0"
 description = "Add your description here"
 authors = [
@@ -24,7 +24,7 @@ dependencies = [
 
 
 [project.scripts]
-greet = "project.cli.greet:main"
+greet = "feature_extractor.cli.greet:main"
 
 [tool.uv]
 dev-dependencies = [

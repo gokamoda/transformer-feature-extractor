@@ -26,7 +26,7 @@ def _load_config(config_path: str, overrides):
     """Load ExperimentConfig from YAML, apply overrides."""
     from omegaconf import OmegaConf
 
-    from project.configs.schema import ExperimentConfig
+    from feature_extractor.configs.schema import ExperimentConfig
 
     cfg_dict = OmegaConf.to_container(OmegaConf.load(config_path), resolve=True)
     assert isinstance(cfg_dict, dict)
@@ -47,7 +47,7 @@ def _load_config(config_path: str, overrides):
         node[keys[-1]] = value
 
     # Map dict -> dataclasses
-    from project.configs.schema import (
+    from feature_extractor.configs.schema import (
         DebugConfig,
     )
 
