@@ -214,23 +214,33 @@ class BaseFeatureExtractor:
                         "Ensure the collate function returns input_ids tensors."
                     )
                     raise ValueError(msg)
+                used_eager = False
                 try:
-                    with self._maybe_use_eager_attention(feature_plan.needs_attentions):
+                    with self._maybe_use_eager_attention(
+                        feature_plan.needs_attentions
+                    ) as used_eager:
                         outputs = self.model(
                             **model_inputs,
                             output_hidden_states=True,
                             output_attentions=feature_plan.needs_attentions,
                             return_dict=True,
                         )
-                except Exception as exc:
+                except (ValueError, RuntimeError) as exc:
                     if (
                         feature_plan.needs_attentions
                         and _is_sdpa_output_attentions_error(exc)
                     ):
-                        _logger.warning(
-                            "Model does not support output_attentions with sdpa; "
-                            "retrying without output_attentions."
-                        )
+                        if used_eager:
+                            _logger.warning(
+                                "Model does not support output_attentions with "
+                                "sdpa even after switching to eager; retrying "
+                                "without output_attentions."
+                            )
+                        else:
+                            _logger.warning(
+                                "Model does not support output_attentions with "
+                                "sdpa; retrying without output_attentions."
+                            )
                         outputs = self.model(
                             **model_inputs,
                             output_hidden_states=True,
