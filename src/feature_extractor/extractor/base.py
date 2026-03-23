@@ -36,13 +36,17 @@ def _is_indexable_sequence(value: object) -> bool:
     return isinstance(value, Sequence) and not isinstance(value, (str, bytes))
 
 
-def _normalize_attentions(attentions: object) -> tuple[object | None, bool]:
+def _normalize_attentions(
+    attentions: object, *, needs_attentions: bool | None = None
+) -> tuple[object | None, bool]:
     """Normalize model attention outputs for downstream feature extraction.
 
     Parameters
     ----------
     attentions : object
         Raw attention output returned by the model.
+    needs_attentions : bool | None
+        Reserved for backwards-compatible signature support.
 
     Returns
     -------
@@ -412,8 +416,8 @@ class BaseFeatureExtractor:
                         _logger.warning(
                             "Attention weights requested but unavailable from hooks "
                             "for layer %d. Ensure attention modules expose "
-                            "attention_weights/attn_weights/attn_probs or enable "
-                            "output_attentions.",
+                            "attention weights via attention_weights/attn_weights/"
+                            "attn_probs attributes or enable output_attentions.",
                             layer_idx,
                         )
                 else:
