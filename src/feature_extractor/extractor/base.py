@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import warnings
 from collections.abc import Sequence
 from typing import Any, Generator
 
@@ -55,6 +56,12 @@ def _normalize_attentions(
         (normalized attentions or None, is_sequence flag). Returns None when the
         model provides no attentions, an empty sequence, or an unsupported type.
     """
+    if needs_attentions is not None:
+        warnings.warn(
+            "needs_attentions is deprecated and will be removed in a future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
     is_sequence = False
     if attentions is not None:
         if _is_indexable_sequence(attentions):
@@ -418,7 +425,7 @@ class BaseFeatureExtractor:
                             "Attention weights requested but unavailable from hooks "
                             "for layer %d. Ensure attention modules expose "
                             "attention weights via attention_weights/attn_weights/"
-                            "attn_probs attributes or enable output_attentions.",
+                            "attn_probs attributes for hook capture.",
                             layer_idx,
                         )
                 else:
