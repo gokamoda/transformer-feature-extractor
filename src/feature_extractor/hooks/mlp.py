@@ -21,7 +21,7 @@ class MLPActivationCache:
     ----------
     mlp_modules : list[nn.Module]
         MLP modules to hook for activation capture.
-    activation_fn : Callable
+    activation_fn : Callable[[nn.Module, tuple, torch.Tensor | tuple | None], torch.Tensor | None]
         Callable that computes an activation tensor from hook inputs.
     """
 
@@ -235,14 +235,10 @@ class MLPHookManager(HookManager):
         the module activation function when available.
         """
         proj = None
-        if hasattr(module, "fc1"):
-            proj = module.fc1(hidden_states)
-        elif hasattr(module, "c_fc"):
-            proj = module.c_fc(hidden_states)
-        elif hasattr(module, "w1"):
-            proj = module.w1(hidden_states)
-        elif hasattr(module, "up_proj"):
-            proj = module.up_proj(hidden_states)
+        for attr_name in ("fc1", "c_fc", "w1", "up_proj"):
+            if hasattr(module, attr_name):
+                proj = getattr(module, attr_name)(hidden_states)
+                break
         if proj is None:
             return None
         act_fn = getattr(module, "act_fn", None)
