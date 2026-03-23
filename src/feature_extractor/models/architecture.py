@@ -20,6 +20,7 @@ class BaseModelArchitecture:
     )
     mlp_implementation: Literal["standard", "gated"] = MLP_IMPLEMENTATION_STANDARD
 
+@dataclass(frozen=True)
 class LlamaForCausalLMArchitecture(BaseModelArchitecture):
     model_field: str = "model"
     layer_field: str = "layers"

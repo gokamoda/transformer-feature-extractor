@@ -50,7 +50,6 @@ if __name__ == "__main__":
                 "attn.layer_00.query",
                 "attn.layer_00.key",
                 "attn.layer_00.value",
-                "attn.layer_00.qk_logits",
                 "attn.layer_00.weights",
                 "mlp.layer_00.activation",
             ],
