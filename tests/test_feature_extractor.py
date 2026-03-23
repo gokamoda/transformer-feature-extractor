@@ -147,6 +147,7 @@ class DummySDPAModel(DummyModel):
         return_dict: bool | None = None,
         **kwargs,
     ):
+        # Allow eager overrides to bypass the SDPA error.
         if self.config.attn_implementation == "sdpa" and output_attentions:
             raise ValueError(
                 "SDPA attention does not support output_attentions=True"
@@ -161,6 +162,19 @@ class DummySDPAModel(DummyModel):
         )
 
 
+class StaticSDPAConfig:
+    def __init__(self) -> None:
+        self._attn_implementation = "sdpa"
+
+    @property
+    def attn_implementation(self) -> str:
+        return self._attn_implementation
+
+    @attn_implementation.setter
+    def attn_implementation(self, _value: str) -> None:
+        return None
+
+
 class DummySDPAFallbackModel(DummyModel):
     def __init__(
         self, hidden_size: int = 4, num_layers: int = 2, num_heads: int = 1
@@ -168,7 +182,7 @@ class DummySDPAFallbackModel(DummyModel):
         super().__init__(
             hidden_size=hidden_size, num_layers=num_layers, num_heads=num_heads
         )
-        self.config = SimpleNamespace(attn_implementation="sdpa")
+        self.config = StaticSDPAConfig()
         self.sdpa_error_count = 0
 
     def forward(
@@ -181,7 +195,7 @@ class DummySDPAFallbackModel(DummyModel):
         return_dict: bool | None = None,
         **kwargs,
     ):
-        if output_attentions:
+        if self.config.attn_implementation == "sdpa" and output_attentions:
             self.sdpa_error_count += 1
             raise ValueError(
                 "SDPA attention does not support output_attentions=True"
