@@ -118,8 +118,8 @@ class AttentionHookManager(HookManager):
         super().__init__(model, architecture)
         self.projection_cache: AttentionProjectionCache | None = None
         self.head_config: AttentionHeadConfig | None = None
-        self._warned_layers = False
-        self._warned_attn = False
+        self._warned_layer_resolution_fallback = False
+        self._warned_attn_resolution_fallback = False
 
     def install(self) -> None:
         """Install projection hooks and resolve attention head metadata."""
@@ -140,10 +140,10 @@ class AttentionHookManager(HookManager):
         if self.projection_cache is not None:
             self.projection_cache.remove()
 
-    def validate_layer_count(self, expected: int) -> None:
+    def validate_layer_count(self, actual_layer_count: int) -> None:
         """Validate the number of hooks matches the model layer count."""
         if self.projection_cache is not None:
-            self.projection_cache.validate_layer_count(expected)
+            self.projection_cache.validate_layer_count(actual_layer_count)
 
     def query(self, layer_idx: int, sample_index: int) -> torch.Tensor:
         """Return per-head query projection for the requested layer."""
@@ -205,13 +205,13 @@ class AttentionHookManager(HookManager):
         model_root = getattr(model, architecture.model_field, model)
         layers = getattr(model_root, architecture.layer_field, None)
         if layers is None:
-            if not self._warned_layers:
+            if not self._warned_layer_resolution_fallback:
                 self._warn_architecture_fallback(
                     "layers",
                     f"{architecture.model_field}.{architecture.layer_field}",
                     "model.layers / layers / transformer.h",
                 )
-                self._warned_layers = True
+                self._warned_layer_resolution_fallback = True
             if hasattr(model, "model") and hasattr(model.model, "layers"):
                 layers = model.model.layers
             elif hasattr(model, "layers"):
@@ -227,13 +227,13 @@ class AttentionHookManager(HookManager):
         for layer in layers:
             attn = getattr(layer, architecture.attn_field, None)
             if attn is None:
-                if not self._warned_attn:
+                if not self._warned_attn_resolution_fallback:
                     self._warn_architecture_fallback(
                         "attention",
                         architecture.attn_field,
                         "self_attn / attn",
                     )
-                    self._warned_attn = True
+                    self._warned_attn_resolution_fallback = True
                 attn = getattr(layer, "self_attn", None) or getattr(layer, "attn", None)
             if attn is None:
                 continue
