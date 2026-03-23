@@ -29,6 +29,10 @@ class BaseFeatureExtractor:
         self.device = self._resolve_device()
         self.feature_cfg = feature_cfg
 
+    def register_hooks(self):
+        # For this basic implementation, we don't need to register any hooks
+        pass
+
     @torch.no_grad()
     def extract_features(
         self,
