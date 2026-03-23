@@ -3,6 +3,7 @@ from feature_extractor.extractor.base import BaseFeatureExtractor
 from feature_extractor.data.load import load_jsonl_text_dataset
 from feature_extractor.data.dataset import Entry, TextDataset
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 
 
@@ -18,8 +19,9 @@ def main(
         shuffle=False,
         collate_fn=dataset.make_collate_fn(extractor.tokenizer),
     )
-    for result in extractor.extract_features(dataloader):
-        print(result)
+
+    for result in tqdm(extractor.extract_features(dataloader)):
+        from IPython import embed; embed()
         break  # just do one batch for testing
 
 if __name__ == "__main__":
@@ -49,6 +51,6 @@ if __name__ == "__main__":
             ],
             output_dir="outputs/features",
             save_format="pt",
-            batch_size=8,
+            batch_size=2,
         )
     )
