@@ -32,7 +32,8 @@ _ATTN_FEATURE_RE = re.compile(r"attn\.layer_(\d+)\.(query|key|value|qk_logits|we
 _MLP_FEATURE_RE = re.compile(r"mlp\.layer_(\d+)\.activation")
 _MAX_TENSOR_NESTING_DEPTH = 3
 _SDPA_OUTPUT_ATTENTION_ERROR_RE = re.compile(
-    r"\bsdpa attention\b.*\boutput_attentions\b", re.IGNORECASE
+    r"(sdpa attention.*output_attentions|output_attentions.*sdpa attention)",
+    re.IGNORECASE,
 )
 _logger = logging.getLogger(__name__)
 
@@ -133,6 +134,7 @@ class BaseFeatureExtractor:
             yield False
             return
         saved_attn_attrs: dict[str, Any] = {}
+        # Transformers may use either the public or private attention impl field.
         for attr in ("attn_implementation", "_attn_implementation"):
             if not hasattr(config, attr):
                 continue
@@ -235,21 +237,16 @@ class BaseFeatureExtractor:
                             feature_plan.needs_attentions
                             and _is_sdpa_output_attentions_error(exc)
                         ):
-                            if used_eager:
-                                _logger.warning(
-                                    "Model does not support output_attentions with "
-                                    "sdpa even after switching to eager (%s: %s); "
-                                    "retrying without output_attentions.",
-                                    type(exc).__name__,
-                                    exc,
-                                )
-                            else:
-                                _logger.warning(
-                                    "Model does not support output_attentions with "
-                                    "sdpa (%s: %s); retrying without output_attentions.",
-                                    type(exc).__name__,
-                                    exc,
-                                )
+                            context_note = (
+                                " even after switching to eager" if used_eager else ""
+                            )
+                            _logger.warning(
+                                "Model does not support output_attentions with "
+                                "sdpa%s (%s: %s); retrying without output_attentions.",
+                                context_note,
+                                type(exc).__name__,
+                                exc,
+                            )
                             outputs = self.model(
                                 **model_inputs,
                                 output_hidden_states=True,
