@@ -421,6 +421,6 @@ def test_extract_features_with_mlp_activation(monkeypatch):
     with torch.no_grad():
         expected = _compute_expected_mlp_activation(
             model,
-            torch.stack([item["input_ids"] for item in dataset]),
+            dataset[0]["input_ids"].unsqueeze(0),
         )[0]
     assert torch.allclose(activation, expected)

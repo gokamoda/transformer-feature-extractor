@@ -21,8 +21,9 @@ class MLPActivationCache:
     ----------
     mlp_modules : list[nn.Module]
         MLP modules to hook for activation capture.
-    activation_fn : Callable[[nn.Module, tuple, torch.Tensor | tuple | None], torch.Tensor | None]
-        Callable that computes an activation tensor from hook inputs.
+    activation_fn : callable
+        Callable that computes an activation tensor from hook inputs with signature
+        ``(module, inputs, output) -> torch.Tensor | None``.
     """
 
     def __init__(
@@ -191,7 +192,7 @@ class MLPHookManager(HookManager):
         torch.Tensor | None
             Activation tensor when derivable, otherwise a fallback output or None.
         """
-        if not inputs:
+        if len(inputs) == 0:
             return self._fallback_activation(output)
         hidden_states = inputs[0]
         if not isinstance(hidden_states, torch.Tensor):
