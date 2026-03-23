@@ -36,6 +36,9 @@ def _extract_attention_logits(module: nn.Module, output: object) -> torch.Tensor
         # Some attention modules return pre-softmax logits as the second element
         # in tuple outputs like (attn_output, attn_scores, ...), shaped
         # (batch, heads, seq_len, seq_len).
+        # We assume output[1] is logits when the attention implementation
+        # explicitly documents that contract; there is no reliable runtime check
+        # to distinguish logits from post-softmax weights.
         if isinstance(output[1], torch.Tensor) and output[1].dim() == 4:
             return output[1]
     return None

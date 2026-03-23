@@ -462,11 +462,10 @@ class BaseFeatureExtractor:
             weights = torch.softmax(qk_logits, dim=-1)
             return weights, qk_logits
         _logger.warning(
-            "Attention weights requested but attention logits were unavailable "
-            "for layer %d. Verify that the attention module exposes logits via "
-            "attn_logits/attn_scores/last_qk_logits (module or output attributes), "
-            "uses dict keys with those names, or returns them as the second element "
-            "in a tuple output.",
+            "Attention weights requested but attention logits were unavailable for "
+            "layer %d. Check for module/output attributes (attn_logits, attn_scores, "
+            "last_qk_logits), dict keys with those names, or tuple outputs where "
+            "the second element is logits.",
             layer_idx,
         )
         return None, qk_logits
