@@ -294,6 +294,7 @@ class BaseFeatureExtractor:
                         if feature_plan.include_embeddings
                         else None
                     )
+                    embeddings = self._maybe_cast_result_tensor(embeddings)
                     layer_features = self._build_layer_features(
                         hidden_states, idx, feature_plan, attention_hooks
                     )
@@ -411,7 +412,7 @@ class BaseFeatureExtractor:
             for key, value in batch.items()
         }
 
-    def _maybe_cast_hook_tensor(
+    def _maybe_cast_result_tensor(
         self, tensor: torch.Tensor | None
     ) -> torch.Tensor | None:
         if tensor is None or self.hook_dtype is None:
@@ -432,6 +433,7 @@ class BaseFeatureExtractor:
                 if layer_idx in feature_plan.output_or_ffn_layers
                 else None
             )
+            layer_output = self._maybe_cast_result_tensor(layer_output)
             output_tensor = (
                 layer_output if layer_idx in feature_plan.output_layers else None
             )
@@ -440,13 +442,14 @@ class BaseFeatureExtractor:
                 if layer_idx in feature_plan.pre_attn_layers
                 else None
             )
+            input_tensor = self._maybe_cast_result_tensor(input_tensor)
             attn_output = None
             if layer_idx in feature_plan.layer_attn_output_layers:
                 if attention_hooks is None:
                     msg = "Attention output features require attention hooks."
                     raise ValueError(msg)
                 attn_output = attention_hooks.attn_output(layer_idx, sample_index)
-                attn_output = self._maybe_cast_hook_tensor(attn_output)
+                attn_output = self._maybe_cast_result_tensor(attn_output)
             mlp_output = (
                 layer_output if layer_idx in feature_plan.ffn_output_layers else None
             )
@@ -487,19 +490,19 @@ class BaseFeatureExtractor:
                     raise ValueError(msg)
                 if layer_idx in feature_plan.attn_query_layers:
                     query = attention_hooks.query(layer_idx, sample_index)
-                    query = self._maybe_cast_hook_tensor(query)
+                    query = self._maybe_cast_result_tensor(query)
                 if layer_idx in feature_plan.attn_key_layers:
                     key = attention_hooks.key(layer_idx, sample_index)
-                    key = self._maybe_cast_hook_tensor(key)
+                    key = self._maybe_cast_result_tensor(key)
                 if layer_idx in feature_plan.attn_value_layers:
                     value = attention_hooks.value(layer_idx, sample_index)
-                    value = self._maybe_cast_hook_tensor(value)
+                    value = self._maybe_cast_result_tensor(value)
             if layer_idx in feature_plan.attn_qk_logits_layers:
                 if attention_hooks is None:
                     msg = "Attention qk_logits features require attention hooks."
                     raise ValueError(msg)
                 qk_logits = attention_hooks.qk_logits(layer_idx, sample_index)
-                qk_logits = self._maybe_cast_hook_tensor(qk_logits)
+                qk_logits = self._maybe_cast_result_tensor(qk_logits)
                 if qk_logits is None:
                     _logger.warning(
                         "Model did not expose attention logits for layer %d; "
@@ -510,13 +513,14 @@ class BaseFeatureExtractor:
             if layer_idx in feature_plan.attn_weights_layers:
                 if attentions is not None:
                     weights = attentions[layer_idx][sample_index].detach().cpu()
+                    weights = self._maybe_cast_result_tensor(weights)
                 elif attention_hooks is not None:
                     weights = self._derive_attention_weights_from_hooks(
                         attention_hooks,
                         layer_idx,
                         sample_index,
                     )
-                    weights = self._maybe_cast_hook_tensor(weights)
+                    weights = self._maybe_cast_result_tensor(weights)
                     if weights is None:
                         _logger.warning(
                             "Attention weights requested but unavailable from hooks "
@@ -582,7 +586,7 @@ class BaseFeatureExtractor:
                 msg = "MLP activation features require MLP hooks."
                 raise ValueError(msg)
             activation = mlp_hooks.activation(layer_idx, sample_index)
-            activation = self._maybe_cast_hook_tensor(activation)
+            activation = self._maybe_cast_result_tensor(activation)
             mlp_features.append(
                 MLPFeatures(layer_index=layer_idx, activation=activation)
             )

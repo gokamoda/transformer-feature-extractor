@@ -550,6 +550,29 @@ def test_extract_features_with_attention_weights(monkeypatch):
     assert results[0].attention_features[0].attn_weights.shape == (1, 3, 3)
 
 
+def test_extract_features_casts_attention_weights_from_model(monkeypatch):
+    model = DummyModel(hidden_size=4, num_layers=1)
+    tokenizer = DummyTokenizer()
+
+    _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
+
+    feature_cfg = FeatureConfig(feature_names=["attn.layer_00.weights"])
+    extractor = BaseFeatureExtractor(
+        "dummy", feature_cfg, hook_dtype=torch.float16
+    )
+    dataset = [
+        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
+    ]
+    data_loader = DataLoader(dataset, batch_size=1)
+
+    results = list(extractor.extract_features(data_loader))
+
+    assert len(results) == 1
+    weights = results[0].attention_features[0].attn_weights
+    assert weights is not None
+    assert weights.dtype == torch.float16
+
+
 def test_extract_features_with_tensor_attentions(monkeypatch):
     model = DummyTensorAttentionModel(hidden_size=4, num_layers=1)
     tokenizer = DummyTokenizer()
@@ -678,6 +701,29 @@ def test_extract_features_with_layer_attn_output(monkeypatch):
     assert torch.allclose(
         results[0].layer_features[0].attn_output, model_output.hidden_states[1][0]
     )
+
+
+def test_extract_features_casts_layer_output(monkeypatch):
+    model = DummyModel(hidden_size=4, num_layers=1)
+    tokenizer = DummyTokenizer()
+
+    _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
+
+    feature_cfg = FeatureConfig(feature_names=["layer.layer_00.output"])
+    extractor = BaseFeatureExtractor(
+        "dummy", feature_cfg, hook_dtype=torch.float16
+    )
+    dataset = [
+        {"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}
+    ]
+    data_loader = DataLoader(dataset, batch_size=1)
+
+    results = list(extractor.extract_features(data_loader))
+
+    assert len(results) == 1
+    layer_output = results[0].layer_features[0].output
+    assert layer_output is not None
+    assert layer_output.dtype == torch.float16
 
 
 def test_extract_features_with_qkv_gqa(monkeypatch):
