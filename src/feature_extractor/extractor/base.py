@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Sized
 from typing import Any, Generator
 
 import torch
@@ -104,7 +105,7 @@ class BaseFeatureExtractor:
                     raise ValueError(msg)
                 missing_attentions = attentions is None
                 if attentions is not None:
-                    if not hasattr(attentions, "__len__"):
+                    if not isinstance(attentions, Sized):
                         missing_attentions = True
                         attentions = None
                     elif len(attentions) == 0:
