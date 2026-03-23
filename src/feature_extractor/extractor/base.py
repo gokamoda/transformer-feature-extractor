@@ -101,7 +101,9 @@ class BaseFeatureExtractor:
         residual_hooks = (
             ResidualHookManager(self.model) if feature_plan.sorted_layers else None
         )
-        norm_hooks = NormHookManager(self.model) if feature_plan.sorted_layers else None
+        norm_hooks = (
+            NormHookManager(self.model) if feature_plan.sorted_layers else None
+        )
         for manager in (mlp_hooks, residual_hooks, norm_hooks):
             if manager is not None:
                 manager.install()
