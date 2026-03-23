@@ -502,8 +502,8 @@ class BaseFeatureExtractor:
 
         if layer_attn_output_layers:
             _logger.warning(
-                "Attention output features are not captured in the minimal "
-                "extractor and will be returned as None."
+                "Layer attention output features (layer.layer_XX.attn_output) are "
+                "not captured in the minimal extractor and will be returned as None."
             )
 
         return _FeaturePlan(
