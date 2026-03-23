@@ -159,6 +159,9 @@ class CombinedAttentionProjectionCache:
             raise ValueError(msg)
 
 
+ProjectionCache = AttentionProjectionCache | CombinedAttentionProjectionCache
+
+
 class AttentionOutputCache:
     """Caches per-layer attention outputs captured by hooks."""
 
@@ -237,7 +240,7 @@ class AttentionHookManager(HookManager):
     ) -> None:
         """Initialize the manager for the provided model."""
         super().__init__(model, architecture)
-        self.projection_cache: AttentionProjectionCache | CombinedAttentionProjectionCache | None = None
+        self.projection_cache: ProjectionCache | None = None
         self.attn_output_cache: AttentionOutputCache | None = None
         self.head_config: AttentionHeadConfig | None = None
         self._warned_layer_fallback = False
@@ -258,51 +261,15 @@ class AttentionHookManager(HookManager):
 
         """
         module_group = self._resolve_qkv_modules()
-        if required:
+        cache_installed = self._init_projection_cache(module_group)
+        if not cache_installed:
             if self._architecture.qkv_implementation == QKV_IMPLEMENTATION_CONV1D:
-                if module_group.has_combined:
-                    self.projection_cache = CombinedAttentionProjectionCache(
-                        module_group.combined_modules
-                    )
-                else:
-                    msg = "Model does not expose combined qkv projection modules."
-                    raise ValueError(msg)
+                msg = "Model does not expose combined qkv projection modules."
             else:
-                if module_group.has_independent:
-                    self.projection_cache = AttentionProjectionCache(
-                        module_group.q_modules,
-                        module_group.k_modules,
-                        module_group.v_modules,
-                    )
-                else:
-                    msg = "Model does not expose q/k/v projection modules."
-                    raise ValueError(msg)
-            self.head_config = self._resolve_attention_head_config()
-        else:
-            if self._architecture.qkv_implementation == QKV_IMPLEMENTATION_CONV1D:
-                if module_group.has_combined:
-                    self.projection_cache = CombinedAttentionProjectionCache(
-                        module_group.combined_modules
-                    )
-                    self.head_config = self._resolve_attention_head_config()
-                else:
-                    _logger.warning(
-                        "Model does not expose combined qkv projection modules. "
-                        "Falling back to model-provided attentions."
-                    )
-            else:
-                if module_group.has_independent:
-                    self.projection_cache = AttentionProjectionCache(
-                        module_group.q_modules,
-                        module_group.k_modules,
-                        module_group.v_modules,
-                    )
-                    self.head_config = self._resolve_attention_head_config()
-                else:
-                    _logger.warning(
-                        "Model does not expose q/k/v projection modules. "
-                        "Falling back to model-provided attentions."
-                    )
+                msg = "Model does not expose q/k/v projection modules."
+            if required:
+                raise ValueError(msg)
+            _logger.warning("%s Falling back to model-provided attentions.", msg)
 
         if capture_attn_output:
             attn_modules = self._resolve_attention_modules()
@@ -387,9 +354,7 @@ class AttentionHookManager(HookManager):
             raise ValueError(msg)
         return output[sample_index].detach().cpu()
 
-    def _projection_cache_or_raise(
-        self,
-    ) -> AttentionProjectionCache | CombinedAttentionProjectionCache:
+    def _projection_cache_or_raise(self) -> ProjectionCache:
         if self.projection_cache is None:
             msg = "Attention projection hooks are not installed."
             raise ValueError(msg)
@@ -406,6 +371,26 @@ class AttentionHookManager(HookManager):
             msg = "Attention output hooks are not installed."
             raise ValueError(msg)
         return self.attn_output_cache
+
+    def _init_projection_cache(self, module_group: QKVModuleGroup) -> bool:
+        if self._architecture.qkv_implementation == QKV_IMPLEMENTATION_CONV1D:
+            if not module_group.has_combined:
+                return False
+            self.projection_cache = CombinedAttentionProjectionCache(
+                module_group.combined_modules
+            )
+        elif self._architecture.qkv_implementation == QKV_IMPLEMENTATION_INDEPENDENT_LINEAR:
+            if not module_group.has_independent:
+                return False
+            self.projection_cache = AttentionProjectionCache(
+                module_group.q_modules,
+                module_group.k_modules,
+                module_group.v_modules,
+            )
+        else:
+            return False
+        self.head_config = self._resolve_attention_head_config()
+        return True
 
     def _resolve_qkv_modules(self) -> QKVModuleGroup:
         layers = self._resolve_layers()
