@@ -183,7 +183,9 @@ class MLPHookManager(HookManager):
             return None
         gate = module.gate_proj(hidden_states)
         up = module.up_proj(hidden_states)
-        act_fn = getattr(module, "act_fn", None) or getattr(module, "activation_fn", None)
+        act_fn = getattr(module, "act_fn", None)
+        if act_fn is None:
+            act_fn = getattr(module, "activation_fn", None)
         if act_fn is None:
             return gate * up
         if callable(act_fn):
@@ -204,11 +206,11 @@ class MLPHookManager(HookManager):
             proj = module.up_proj(hidden_states)
         if proj is None:
             return None
-        act_fn = (
-            getattr(module, "act_fn", None)
-            or getattr(module, "activation_fn", None)
-            or getattr(module, "act", None)
-        )
+        act_fn = getattr(module, "act_fn", None)
+        if act_fn is None:
+            act_fn = getattr(module, "activation_fn", None)
+        if act_fn is None:
+            act_fn = getattr(module, "act", None)
         if act_fn is None:
             return proj
         if callable(act_fn):

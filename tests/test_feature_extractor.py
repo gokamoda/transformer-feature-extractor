@@ -121,6 +121,14 @@ class DummyMLPModel(nn.Module):
         return SimpleNamespace(hidden_states=tuple(hidden_states), attentions=None)
 
 
+def _expected_dummy_mlp_activation(
+    model: DummyMLPModel,
+    input_ids: torch.Tensor,
+) -> torch.Tensor:
+    hidden = model.embedding(input_ids)
+    return model.layers[0].mlp.act_fn(model.layers[0].mlp.fc1(hidden))
+
+
 class DummyLlamaAttention(nn.Module):
     def __init__(self, hidden_size: int, num_heads: int, num_key_value_heads: int) -> None:
         super().__init__()
@@ -436,6 +444,8 @@ def test_extract_features_with_mlp_activation(monkeypatch):
     assert activation.shape == (3, 6)
 
     with torch.no_grad():
-        hidden = model.embedding(torch.stack([item["input_ids"] for item in dataset]))
-        expected = model.layers[0].mlp.act_fn(model.layers[0].mlp.fc1(hidden))[0]
+        expected = _expected_dummy_mlp_activation(
+            model,
+            torch.stack([item["input_ids"] for item in dataset]),
+        )[0]
     assert torch.allclose(activation, expected)
