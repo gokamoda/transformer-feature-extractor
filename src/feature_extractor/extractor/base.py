@@ -457,11 +457,6 @@ class BaseFeatureExtractor:
             Attention weights, or None when unavailable.
         """
         if attention_hooks is None:
-            _logger.warning(
-                "Attention weights requested but attention hooks were unavailable "
-                "for layer %d.",
-                layer_idx,
-            )
             return None
         weights = attention_hooks.attn_weights(layer_idx, sample_index)
         return weights
