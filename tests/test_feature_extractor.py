@@ -10,8 +10,7 @@ from torch.utils.data import DataLoader
 
 
 class DummyTokenizer:
-    def __call__(self, texts, return_tensors=None, padding=None, truncation=None):
-        del return_tensors, padding, truncation
+    def __call__(self, texts, _return_tensors=None, _padding=None, _truncation=None):
         max_len = max(len(text) for text in texts)
         input_ids = []
         for text in texts:
@@ -37,11 +36,10 @@ class DummyModel(nn.Module):
         self,
         *,
         input_ids: torch.Tensor,
-        attention_mask: torch.Tensor | None = None,
-        output_hidden_states: bool | None = None,
-        return_dict: bool | None = None,
+        _attention_mask: torch.Tensor | None = None,
+        _output_hidden_states: bool | None = None,
+        _return_dict: bool | None = None,
     ):
-        del attention_mask, output_hidden_states, return_dict
         hidden_states = []
         hidden = self.embedding(input_ids)
         hidden_states.append(hidden)

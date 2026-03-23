@@ -190,4 +190,3 @@ class _FeaturePlan:
                 f"Requested layer {max_index} but model has {num_layers} layers."
             )
             raise ValueError(msg)
-        
