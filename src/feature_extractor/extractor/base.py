@@ -27,7 +27,7 @@ _MAX_TENSOR_NESTING_DEPTH = 3
 _logger = logging.getLogger(__name__)
 
 
-def _is_proper_sequence(value: object) -> bool:
+def _is_indexable_sequence(value: object) -> bool:
     return isinstance(value, Sequence) and not isinstance(value, (str, bytes))
 
 
@@ -37,7 +37,7 @@ def _normalize_attentions(
     is_sequence = False
     missing_attentions = attentions is None
     if attentions is not None:
-        if _is_proper_sequence(attentions):
+        if _is_indexable_sequence(attentions):
             if len(attentions) == 0:
                 missing_attentions = True
                 attentions = None
@@ -138,7 +138,7 @@ class BaseFeatureExtractor:
                 attentions, is_sequence = _normalize_attentions(
                     attentions, needs_attentions=feature_plan.needs_attentions
                 )
-                if is_sequence and attentions is not None and len(attentions) != actual_num_layers:
+                if attentions is not None and len(attentions) != actual_num_layers:
                     msg = (
                         "Model returned inconsistent attention lengths. "
                         f"Expected {actual_num_layers} attention tensors but got "
