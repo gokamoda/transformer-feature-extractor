@@ -442,6 +442,9 @@ def test_extract_features_with_attention_weights_fallback(monkeypatch):
     weights = results[0].attention_features[0].attn_weights
     assert weights is not None
     assert weights.shape == (2, 3, 3)
+    assert model.model.layers[0].self_attn.attn_weights is not None
+    expected_weights = model.model.layers[0].self_attn.attn_weights[0].detach().cpu()
+    assert torch.allclose(weights, expected_weights)
 
 
 def test_extract_features_with_layer_attn_output(monkeypatch):

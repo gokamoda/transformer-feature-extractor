@@ -47,7 +47,7 @@ def _normalize_attentions(
         Raw attention output returned by the model.
     needs_attentions : bool | None
         Unused in the current implementation; retained for backwards-compatible
-        signature support.
+        signature support. This parameter may be removed in a future release.
 
     Returns
     -------
