@@ -29,8 +29,8 @@ if __name__ == "__main__":
     if dataset_path.exists():
         dataset_raw = load_jsonl_text_dataset(dataset_path)
         entries = [
-            Entry(idx=item.get("idx", fallback_idx), text=item["text"])
-            for fallback_idx, item in enumerate(dataset_raw)
+            Entry(idx=item.get("idx", enum_idx), text=item["text"])
+            for enum_idx, item in enumerate(dataset_raw)
         ]
     else:
         entries = [
