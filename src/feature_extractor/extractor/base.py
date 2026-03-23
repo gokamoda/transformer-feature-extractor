@@ -31,6 +31,9 @@ _LAYER_FEATURE_RE = re.compile(r"layer\.layer_(\d+)\.(attn_output|ffn_output|out
 _ATTN_FEATURE_RE = re.compile(r"attn\.layer_(\d+)\.(query|key|value|qk_logits|weights)")
 _MLP_FEATURE_RE = re.compile(r"mlp\.layer_(\d+)\.activation")
 _MAX_TENSOR_NESTING_DEPTH = 3
+_SDPA_OUTPUT_ATTENTION_ERROR_RE = re.compile(
+    r"\bsdpa\b.*\boutput_attentions\b", re.IGNORECASE
+)
 _logger = logging.getLogger(__name__)
 
 
@@ -95,8 +98,9 @@ def _normalize_attentions(
 
 
 def _is_sdpa_output_attentions_error(exc: BaseException) -> bool:
-    message = str(exc).lower()
-    return "sdpa" in message and "output_attentions" in message
+    if not isinstance(exc, (ValueError, RuntimeError)):
+        return False
+    return _SDPA_OUTPUT_ATTENTION_ERROR_RE.search(str(exc)) is not None
 
 
 class BaseFeatureExtractor:
@@ -225,6 +229,8 @@ class BaseFeatureExtractor:
                             return_dict=True,
                         )
                     except (ValueError, RuntimeError) as exc:
+                        # SDPA output_attentions failures surface as ValueError
+                        # (or RuntimeError in some torch builds).
                         if (
                             feature_plan.needs_attentions
                             and _is_sdpa_output_attentions_error(exc)
