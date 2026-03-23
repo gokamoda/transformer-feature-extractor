@@ -139,7 +139,7 @@ class BaseFeatureExtractor:
             if not hasattr(config, attr):
                 continue
             value = getattr(config, attr)
-            if not (isinstance(value, str) and value == "sdpa"):
+            if not isinstance(value, str) or value != "sdpa":
                 continue
             saved_attn_attrs[attr] = value
             setattr(config, attr, "eager")
@@ -241,9 +241,9 @@ class BaseFeatureExtractor:
                                 " even after switching to eager" if used_eager else ""
                             )
                             _logger.warning(
-                                "Model does not support output_attentions with "
-                                "sdpa%s (%s: %s); retrying without output_attentions.",
-                                context_note,
+                                f"Model does not support output_attentions with "
+                                f"sdpa{context_note} (%s: %s); retrying without "
+                                "output_attentions.",
                                 type(exc).__name__,
                                 exc,
                             )
