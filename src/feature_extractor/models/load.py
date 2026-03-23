@@ -23,6 +23,7 @@ def load_causal_model(model_name_or_path: str) -> PreTrainedModel:
 
     model.eval()
     logger.info(f"Model loaded on device: {model.device}")
+    print(model)
     return model
 
 

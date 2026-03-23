@@ -21,7 +21,7 @@ from feature_extractor.hooks.results import (
     LayerFeatures,
     MLPFeatures,
 )
-from feature_extractor.models.architecture import BaseModelArchitecture
+from feature_extractor.models.architecture import get_model_architecture
 from feature_extractor.models.load import load_causal_model, load_tokenizer
 
 _RESIDUAL_FEATURE_RE = re.compile(r"residual\.layer_(\d+)\.(pre_attn|post_ffn)")
@@ -73,13 +73,12 @@ class BaseFeatureExtractor:
         self,
         model_name_or_path: str,
         feature_cfg: FeatureConfig,
-        architecture: BaseModelArchitecture | None = None,
     ) -> None:
         self.model = load_causal_model(model_name_or_path)
         self.tokenizer = load_tokenizer(model_name_or_path)
         self.device = self._resolve_device()
         self.feature_cfg = feature_cfg
-        self.architecture = architecture or BaseModelArchitecture()
+        self.architecture = get_model_architecture(self.model.__class__.__name__)
 
     def register_hooks(self):
         # For this basic implementation, we don't need to register any hooks
