@@ -148,10 +148,7 @@ class BaseFeatureExtractor:
         if isinstance(value, (list, tuple)):
             if not value:
                 return False
-            for item in value:
-                if not self._is_tensor_input(item):
-                    return False
-            return True
+            return all(self._is_tensor_input(item) for item in value)
         return False
 
     def _move_to_device(self, batch: dict[str, Any]) -> dict[str, Any]:
