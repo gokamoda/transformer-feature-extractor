@@ -10,6 +10,8 @@ from feature_extractor.models.load import load_causal_model, load_tokenizer
 from torch.utils.data import DataLoader
 from transformers import PreTrainedModel, PreTrainedTokenizer
 
+_RESIDUAL_FEATURE_RE = re.compile(r"residual\.layer_(\d+)\.(pre_attn|post_ffn)")
+
 
 class BaseFeatureExtractor:
     model: PreTrainedModel
@@ -23,7 +25,7 @@ class BaseFeatureExtractor:
     ) -> None:
         self.model = load_causal_model(model_name_or_path)
         self.tokenizer = load_tokenizer(model_name_or_path)
-        self.device = self.model.device
+        self.device = self._resolve_device()
         self.feature_cfg = feature_cfg
 
 
@@ -33,6 +35,7 @@ class BaseFeatureExtractor:
     ) -> list[ExtractorResult]:
         feature_plan = self._parse_feature_names()
         results: list[ExtractorResult] = []
+        expected_num_layers: int | None = None
 
         self.model.eval()
         with torch.no_grad():
@@ -46,8 +49,17 @@ class BaseFeatureExtractor:
                     msg = "Model did not return hidden states."
                     raise ValueError(msg)
 
-                num_layers = len(hidden_states) - 1
-                feature_plan.validate_layer_indices(num_layers)
+                actual_num_layers = len(hidden_states) - 1
+                if expected_num_layers is None:
+                    expected_num_layers = actual_num_layers
+                    feature_plan.validate_layer_indices(expected_num_layers)
+                elif actual_num_layers != expected_num_layers:
+                    msg = (
+                        "Model returned inconsistent hidden state lengths. "
+                        f"Expected {expected_num_layers + 1} hidden states but got "
+                        f"{len(hidden_states)}."
+                    )
+                    raise ValueError(msg)
 
                 batch_size = hidden_states[0].shape[0]
                 for idx in range(batch_size):
@@ -95,9 +107,26 @@ class BaseFeatureExtractor:
                         "input_ids": batch[0].to(self.device),
                         "attention_mask": batch[1].to(self.device),
                     }
+                msg = (
+                    "Unsupported tensor batch length. Expected 1 or 2 tensors, "
+                    f"got {len(batch)}."
+                )
+                raise TypeError(msg)
 
         msg = f"Unsupported batch type: {type(batch)}"
         raise TypeError(msg)
+
+    def _resolve_device(self) -> torch.device:
+        device = getattr(self.model, "device", None)
+        if device is not None:
+            return device
+
+        parameter = next(self.model.parameters(), None)
+        if parameter is None:
+            msg = "Model has no parameters and no device attribute."
+            raise ValueError(msg)
+
+        return parameter.device
 
     def _move_to_device(self, batch: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -108,18 +137,18 @@ class BaseFeatureExtractor:
     def _build_layer_features(
         self,
         hidden_states: tuple[torch.Tensor, ...],
-        batch_index: int,
+        sample_index: int,
         feature_plan: _FeaturePlan,
     ) -> list[LayerFeatures]:
         layer_features: list[LayerFeatures] = []
         for layer_idx in feature_plan.sorted_layers:
             input_tensor = (
-                hidden_states[layer_idx][batch_index].detach().cpu()
+                hidden_states[layer_idx][sample_index].detach().cpu()
                 if layer_idx in feature_plan.pre_attn_layers
                 else None
             )
             output_tensor = (
-                hidden_states[layer_idx + 1][batch_index].detach().cpu()
+                hidden_states[layer_idx + 1][sample_index].detach().cpu()
                 if layer_idx in feature_plan.post_ffn_layers
                 else None
             )
@@ -133,7 +162,7 @@ class BaseFeatureExtractor:
             )
         return layer_features
 
-    def _parse_feature_names(self) -> "_FeaturePlan":
+    def _parse_feature_names(self) -> _FeaturePlan:
         include_embeddings = False
         pre_attn_layers: set[int] = set()
         post_ffn_layers: set[int] = set()
@@ -144,9 +173,7 @@ class BaseFeatureExtractor:
                 include_embeddings = True
                 continue
 
-            match = re.fullmatch(
-                r"residual\.layer_(\d+)\.(pre_attn|post_ffn)", feature_name
-            )
+            match = _RESIDUAL_FEATURE_RE.fullmatch(feature_name)
             if match:
                 layer_index = int(match.group(1))
                 if match.group(2) == "pre_attn":
@@ -187,6 +214,7 @@ class _FeaturePlan:
         max_index = max(self.sorted_layers)
         if max_index >= num_layers:
             msg = (
-                f"Requested layer {max_index} but model has {num_layers} layers."
+                f"Requested layer index {max_index} exceeds available layers "
+                f"(valid range: 0-{num_layers - 1})."
             )
             raise ValueError(msg)
