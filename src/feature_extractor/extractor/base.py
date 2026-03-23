@@ -103,9 +103,14 @@ class BaseFeatureExtractor:
                     )
                     raise ValueError(msg)
                 missing_attentions = attentions is None
-                if attentions is not None and len(attentions) == 0:
-                    missing_attentions = True
-                    attentions = None
+                if attentions is not None:
+                    try:
+                        if len(attentions) == 0:
+                            missing_attentions = True
+                            attentions = None
+                    except TypeError:
+                        missing_attentions = True
+                        attentions = None
                 if feature_plan.needs_attentions and missing_attentions:
                     _logger.warning(
                         "Model did not return attention weights; returning None "
