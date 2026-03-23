@@ -104,7 +104,9 @@ class BaseFeatureExtractor:
                     )
                     raise ValueError(msg)
                 missing_attentions = attentions is None
-                if isinstance(attentions, Sequence):
+                if isinstance(attentions, Sequence) and not isinstance(
+                    attentions, (str, bytes)
+                ):
                     if len(attentions) == 0:
                         missing_attentions = True
                         attentions = None
