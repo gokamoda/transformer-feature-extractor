@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import torch
-from torch import nn
-from torch.utils.data import DataLoader
+import pytest
 
-from feature_extractor.configs.schema import FeatureConfig
-from feature_extractor.extractor.base import BaseFeatureExtractor
-from feature_extractor.models.architecture import (
+torch = pytest.importorskip("torch")
+from torch import nn  # noqa: E402
+from torch.utils.data import DataLoader  # noqa: E402
+
+from feature_extractor.configs.schema import FeatureConfig  # noqa: E402
+from feature_extractor.extractor.base import BaseFeatureExtractor  # noqa: E402
+from feature_extractor.models.architecture import (  # noqa: E402
     QKV_IMPLEMENTATION_CONV1D,
     BaseModelArchitecture,
 )
