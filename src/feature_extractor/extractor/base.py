@@ -402,7 +402,7 @@ class BaseFeatureExtractor:
                 if attentions is not None:
                     weights = attentions[layer_idx][sample_index].detach().cpu()
                 else:
-                    weights, qk_logits = self._compute_attention_weights_fallback(
+                    weights, qk_logits = self._derive_attention_weights_from_logits(
                         attention_hooks,
                         layer_idx,
                         sample_index,
@@ -420,7 +420,7 @@ class BaseFeatureExtractor:
             )
         return attention_features
 
-    def _compute_attention_weights_fallback(
+    def _derive_attention_weights_from_logits(
         self,
         attention_hooks: AttentionHookManager | None,
         layer_idx: int,
@@ -463,7 +463,8 @@ class BaseFeatureExtractor:
             return weights, qk_logits
         _logger.warning(
             "Attention weights requested but attention logits were unavailable "
-            "for layer %d.",
+            "for layer %d. Verify that the attention module exposes logits via "
+            "attn_logits/attn_scores/last_qk_logits or returns them in output[1].",
             layer_idx,
         )
         return None, qk_logits

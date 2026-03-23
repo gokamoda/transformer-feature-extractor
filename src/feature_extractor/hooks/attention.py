@@ -33,7 +33,8 @@ def _resolve_qk_logits(module: nn.Module, output: object) -> torch.Tensor | None
             if isinstance(value, torch.Tensor):
                 return value
     if isinstance(output, (tuple, list)) and len(output) > 1:
-        # Some attention modules return pre-softmax logits in the second tuple slot.
+        # Some attention modules return pre-softmax logits in the second tuple slot
+        # as a 4D tensor shaped (batch, heads, seq_len, seq_len).
         if isinstance(output[1], torch.Tensor):
             return output[1]
     return None
