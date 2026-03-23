@@ -329,9 +329,10 @@ class BaseFeatureExtractor:
                             "Attention qk_logits requested but projections were missing."
                         )
                         raise ValueError(msg)
-                    qk_logits = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(
-                        head_config.head_dim
-                    )
+                    scaling_factor = 1.0 / math.sqrt(head_config.head_dim)
+                    qk_logits = torch.matmul(
+                        query, key.transpose(-2, -1)
+                    ) * scaling_factor
             weights = (
                 attentions[layer_idx][sample_index].detach().cpu()
                 if attentions is not None
@@ -451,7 +452,7 @@ class BaseFeatureExtractor:
         # (batch, seq, heads, head_dim) -> (batch, heads, seq, head_dim)
         projection = projection.transpose(1, 2)
         if num_attention_heads is not None and projection_heads != num_attention_heads:
-            repeat_factor = num_attention_heads // projection_heads
+            head_expansion_factor = num_attention_heads // projection_heads
             if num_attention_heads % projection_heads != 0:
                 msg = (
                     "Cannot expand GQA heads "
@@ -459,7 +460,7 @@ class BaseFeatureExtractor:
                     f"num_key_value_heads={projection_heads})."
                 )
                 raise ValueError(msg)
-            projection = projection.repeat_interleave(repeat_factor, dim=1)
+            projection = projection.repeat_interleave(head_expansion_factor, dim=1)
         return projection[sample_index].detach().cpu()
 
     def _parse_feature_names(self) -> _FeaturePlan:
