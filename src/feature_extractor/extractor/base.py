@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Generator
 
@@ -13,6 +14,7 @@ from feature_extractor.models.load import load_causal_model, load_tokenizer
 
 _RESIDUAL_FEATURE_RE = re.compile(r"residual\.layer_(\d+)\.(pre_attn|post_ffn)")
 _MAX_TENSOR_NESTING_DEPTH = 3
+_logger = logging.getLogger(__name__)
 
 
 class BaseFeatureExtractor:
@@ -166,6 +168,10 @@ class BaseFeatureExtractor:
                 # Empty sequences provide no tensor payload to forward.
                 return False
             if depth >= _MAX_TENSOR_NESTING_DEPTH:
+                _logger.warning(
+                    "Skipping nested tensor input deeper than %d levels.",
+                    _MAX_TENSOR_NESTING_DEPTH,
+                )
                 return False
             return all(self._is_tensor_input(item, depth + 1) for item in value)
         return False
