@@ -244,10 +244,14 @@ class BaseFeatureExtractor:
     ) -> list[LayerFeatures]:
         layer_features: list[LayerFeatures] = []
         for layer_idx in feature_plan.sorted_layers:
-            output_tensor = (
+            layer_output = (
                 hidden_states[layer_idx + 1][sample_index].detach().cpu()
                 if layer_idx in feature_plan.output_layers
+                or layer_idx in feature_plan.ffn_output_layers
                 else None
+            )
+            output_tensor = (
+                layer_output if layer_idx in feature_plan.output_layers else None
             )
             input_tensor = (
                 hidden_states[layer_idx][sample_index].detach().cpu()
@@ -255,9 +259,7 @@ class BaseFeatureExtractor:
                 else None
             )
             mlp_output = (
-                hidden_states[layer_idx + 1][sample_index].detach().cpu()
-                if layer_idx in feature_plan.ffn_output_layers
-                else None
+                layer_output if layer_idx in feature_plan.ffn_output_layers else None
             )
             layer_features.append(
                 LayerFeatures(
@@ -685,7 +687,7 @@ class _AttentionProjectionCache:
 
     def reset(self) -> None:
         for storage in (self.q_outputs, self.k_outputs, self.v_outputs):
-            for idx in range(len(storage)):
+            for idx, _ in enumerate(storage):
                 storage[idx] = None
 
     def remove(self) -> None:

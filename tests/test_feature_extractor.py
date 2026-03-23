@@ -58,10 +58,12 @@ class DummyModel(nn.Module):
         attentions = None
         if output_attentions:
             batch_size, seq_len = input_ids.shape
-            attn = torch.ones(
-                (batch_size, 1, seq_len, seq_len), dtype=hidden.dtype
+            attentions = tuple(
+                torch.ones(
+                    (batch_size, 1, seq_len, seq_len), dtype=hidden.dtype
+                )
+                for _ in self.layers
             )
-            attentions = tuple(attn.clone() for _ in self.layers)
         return SimpleNamespace(hidden_states=tuple(hidden_states), attentions=attentions)
 
 
