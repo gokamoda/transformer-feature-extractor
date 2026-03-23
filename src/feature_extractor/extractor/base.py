@@ -47,7 +47,7 @@ class BaseFeatureExtractor:
             model_inputs = {
                 key: value
                 for key, value in inputs.items()
-                if isinstance(value, torch.Tensor)
+                if self._is_tensor_input(value)
             }
             if "input_ids" not in model_inputs:
                 msg = "Prepared batch does not contain input_ids tensor."
@@ -137,6 +137,15 @@ class BaseFeatureExtractor:
             raise ValueError(msg)
 
         return parameter.device
+
+    def _is_tensor_input(self, value: Any) -> bool:
+        if isinstance(value, torch.Tensor):
+            return True
+        if isinstance(value, (list, tuple)):
+            if not value:
+                return True
+            return all(self._is_tensor_input(item) for item in value)
+        return False
 
     def _move_to_device(self, batch: dict[str, Any]) -> dict[str, Any]:
         return {
