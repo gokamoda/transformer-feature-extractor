@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Sized
+from collections.abc import Sequence
 from typing import Any, Generator
 
 import torch
@@ -104,16 +104,19 @@ class BaseFeatureExtractor:
                     )
                     raise ValueError(msg)
                 missing_attentions = attentions is None
-                if attentions is not None:
-                    if not isinstance(attentions, Sized) or len(attentions) == 0:
+                if isinstance(attentions, Sequence):
+                    if len(attentions) == 0:
                         missing_attentions = True
                         attentions = None
+                elif attentions is not None:
+                    missing_attentions = True
+                    attentions = None
                 if feature_plan.needs_attentions and missing_attentions:
                     _logger.warning(
                         "Model did not return attention weights; returning None "
                         "for attention weight features."
                     )
-                if isinstance(attentions, Sized) and len(attentions) != actual_num_layers:
+                if isinstance(attentions, Sequence) and len(attentions) != actual_num_layers:
                     msg = (
                         "Model returned inconsistent attention lengths. "
                         f"Expected {actual_num_layers} attention tensors but got "
