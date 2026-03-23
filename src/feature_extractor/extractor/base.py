@@ -60,7 +60,7 @@ def _normalize_attentions(
         warnings.warn(
             "needs_attentions is deprecated and will be removed in a future release.",
             DeprecationWarning,
-            stacklevel=2,
+            stacklevel=3,
         )
     is_sequence = False
     if attentions is not None:
