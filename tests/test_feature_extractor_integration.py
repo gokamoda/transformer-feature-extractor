@@ -125,7 +125,7 @@ def test_supported_models_attention_and_final_norm_relationships_real_models(
     assert query is not None and key is not None and value is not None
     assert attn_weights is not None
 
-    architecture = get_model_architecture(model.config.architectures[0])
+    architecture = get_model_architecture(model.__class__.__name__)
     if "position_ids" in model_inputs:
         position_ids = model_inputs["position_ids"][0].detach().cpu()
     else:
