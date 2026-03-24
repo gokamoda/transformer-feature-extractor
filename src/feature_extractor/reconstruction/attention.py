@@ -14,6 +14,7 @@ def reconstruct_attention_scores(
     query: torch.Tensor,
     key: torch.Tensor,
     layer_module: nn.Module | None = None,
+    rotary_emb_module: nn.Module | None = None,
     position_ids: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Reconstruct pre-softmax attention scores from captured q/k projections."""
@@ -38,6 +39,7 @@ def reconstruct_attention_scores(
             query,
             key,
             layer_module=layer_module,
+            rotary_emb_module=rotary_emb_module,
             position_ids=position_ids,
         )
 
@@ -50,9 +52,13 @@ def _apply_llama_rotary_embeddings(
     key: torch.Tensor,
     *,
     layer_module: nn.Module | None,
+    rotary_emb_module: nn.Module | None,
     position_ids: torch.Tensor | None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    if layer_module is None or not hasattr(layer_module, "rotary_emb"):
+    rotary_module = rotary_emb_module
+    if rotary_module is None and layer_module is not None:
+        rotary_module = getattr(layer_module, "rotary_emb", None)
+    if rotary_module is None:
         msg = "Llama-style attention score reconstruction requires rotary_emb module."
         raise ValueError(msg)
     if position_ids is None:
@@ -63,8 +69,7 @@ def _apply_llama_rotary_embeddings(
     batch_key = key.unsqueeze(0)
     batch_positions = position_ids.unsqueeze(0)
 
-    rotary_emb = layer_module.rotary_emb
-    rotary_output = rotary_emb(batch_query, position_ids=batch_positions)
+    rotary_output = rotary_module(batch_query, position_ids=batch_positions)
     if isinstance(rotary_output, tuple):
         cos, sin = rotary_output
     else:

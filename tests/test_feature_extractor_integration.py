@@ -42,6 +42,19 @@ def _load_supported_model_or_skip(model_name: str):
     return model, tokenizer
 
 
+def _resolve_rotary_module(model: nn.Module, architecture) -> nn.Module | None:
+    model_root = getattr(model, architecture.model_field, model)
+    rotary_module = getattr(model_root, "rotary_emb", None)
+    if isinstance(rotary_module, nn.Module):
+        return rotary_module
+    first_layer = getattr(model_root, architecture.layer_field)[0]
+    attn_module = getattr(first_layer, architecture.attn_field)
+    nested_rotary = getattr(attn_module, "rotary_emb", None)
+    if isinstance(nested_rotary, nn.Module):
+        return nested_rotary
+    return None
+
+
 @pytest.mark.integration
 @pytest.mark.parametrize("model_name", SUPPORTED_MODELS)
 def test_supported_models_attention_and_final_norm_relationships_real_models(
@@ -119,15 +132,25 @@ def test_supported_models_attention_and_final_norm_relationships_real_models(
         sample_mask = model_inputs["attention_mask"][0].detach().cpu()
         position_ids = sample_mask.long().cumsum(dim=-1) - 1
         position_ids.masked_fill_(sample_mask == 0, 0)
-    layer_module = getattr(getattr(model, architecture.model_field), architecture.layer_field)[0]
-    layer_module = getattr(layer_module, architecture.attn_field)
+    layer_root = getattr(model, architecture.model_field, model)
+    layer_module = getattr(getattr(layer_root, architecture.layer_field)[0], architecture.attn_field)
     qk_logits = reconstruct_attention_scores(
         architecture=architecture,
         query=query,
         key=key,
         layer_module=layer_module,
+        rotary_emb_module=_resolve_rotary_module(model, architecture),
         position_ids=position_ids,
     )
+    seq_len = qk_logits.shape[-1]
+    causal_mask = torch.triu(
+        torch.ones((seq_len, seq_len), device=qk_logits.device, dtype=torch.bool),
+        diagonal=1,
+    )
+    qk_logits = qk_logits.masked_fill(causal_mask.unsqueeze(0), float("-inf"))
+    if "attention_mask" in model_inputs:
+        sample_mask = model_inputs["attention_mask"][0].detach().cpu().bool()
+        qk_logits = qk_logits.masked_fill(~sample_mask.unsqueeze(0).unsqueeze(1), float("-inf"))
     expected_weights = torch.softmax(qk_logits, dim=-1)
     assert torch.allclose(expected_weights, attn_weights, atol=1e-4, rtol=1e-4)
     assert outputs.attentions is not None

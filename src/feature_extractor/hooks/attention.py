@@ -485,6 +485,18 @@ class AttentionHookManager(HookManager):
             raise IndexError(msg)
         return modules[layer_idx]
 
+    def rotary_embedding_module(self, layer_idx: int) -> nn.Module | None:
+        attn_module = self.attention_module(layer_idx)
+        rotary_module = getattr(attn_module, "rotary_emb", None)
+        if isinstance(rotary_module, nn.Module):
+            return rotary_module
+
+        model_root = getattr(self._model, self._architecture.model_field, self._model)
+        root_rotary = getattr(model_root, "rotary_emb", None)
+        if isinstance(root_rotary, nn.Module):
+            return root_rotary
+        return None
+
     def _projection_cache_or_raise(self) -> ProjectionCache:
         if self.projection_cache is None:
             msg = "Attention projection hooks are not installed."

@@ -524,6 +524,9 @@ class BaseFeatureExtractor:
                                 query=query,
                                 key=key,
                                 layer_module=attention_hooks.attention_module(layer_idx),
+                                rotary_emb_module=attention_hooks.rotary_embedding_module(
+                                    layer_idx
+                                ),
                                 position_ids=self._resolve_position_ids(
                                     model_inputs=model_inputs,
                                     sample_index=sample_index,
