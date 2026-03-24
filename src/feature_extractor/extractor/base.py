@@ -248,15 +248,15 @@ class BaseFeatureExtractor:
                     outputs.attentions if feature_plan.needs_attentions else None
                 )
 
-                actual_num_layers = len(hidden_states) - 1
+                actual_num_layers = self._resolve_num_layers(hidden_states)
                 if expected_num_layers is None:
                     expected_num_layers = actual_num_layers
                     feature_plan.validate_layer_indices(expected_num_layers)
                 elif actual_num_layers != expected_num_layers:
                     msg = (
                         "Model returned inconsistent hidden state lengths. "
-                        f"Expected {expected_num_layers + 1} hidden states but got "
-                        f"{len(hidden_states)}."
+                        f"Expected {expected_num_layers} layers but got "
+                        f"{actual_num_layers}."
                     )
                     raise ValueError(msg)
                 attentions, is_sequence = _normalize_attentions(attentions)
@@ -337,6 +337,36 @@ class BaseFeatureExtractor:
 
         msg = f"Unsupported batch type: {type(batch)}"
         raise TypeError(msg)
+
+    def _resolve_num_layers(self, hidden_states: tuple[torch.Tensor, ...]) -> int:
+        configured_num_layers = self._configured_num_layers()
+        if configured_num_layers is None:
+            return len(hidden_states) - 1
+
+        expected_lengths = {configured_num_layers + 1, configured_num_layers + 2}
+        if len(hidden_states) not in expected_lengths:
+            msg = (
+                "Model returned hidden states with unexpected length. "
+                f"Expected one of {sorted(expected_lengths)} entries for "
+                f"{configured_num_layers} layers but got {len(hidden_states)}."
+            )
+            raise ValueError(msg)
+        return configured_num_layers
+
+    def _configured_num_layers(self) -> int | None:
+        architecture = self.architecture
+        model_root = getattr(self.model, architecture.model_field, self.model)
+        layers = getattr(model_root, architecture.layer_field, None)
+        if layers is None:
+            if hasattr(self.model, "model") and hasattr(self.model.model, "layers"):
+                layers = self.model.model.layers
+            elif hasattr(self.model, "layers"):
+                layers = self.model.layers
+            elif hasattr(self.model, "transformer") and hasattr(self.model.transformer, "h"):
+                layers = self.model.transformer.h
+        if layers is None:
+            return None
+        return len(layers)
 
     def _resolve_device(self) -> torch.device:
         device = getattr(self.model, "device", None)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from types import SimpleNamespace
 
 import pytest
@@ -10,6 +11,7 @@ from torch.utils.data import DataLoader  # noqa: E402
 
 from feature_extractor.configs.schema import FeatureConfig  # noqa: E402
 from feature_extractor.extractor.base import BaseFeatureExtractor  # noqa: E402
+from feature_extractor.models import SUPPORTED_MODELS  # noqa: E402
 from feature_extractor.models.architecture import (  # noqa: E402
     QKV_IMPLEMENTATION_CONV1D,
     BaseModelArchitecture,
@@ -894,3 +896,234 @@ def test_extract_features_casts_mlp_activation(monkeypatch):
     activation = results[0].mlp_features[0].activation
     assert activation is not None
     assert activation.dtype == torch.float16
+
+
+class DummyFinalNormAttention(nn.Module):
+    def __init__(
+        self,
+        hidden_size: int,
+        num_heads: int,
+        *,
+        num_key_value_heads: int | None = None,
+        combined_qkv: bool = False,
+        attn_attr: str = "self_attn",
+    ) -> None:
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.num_heads = num_heads
+        self.num_key_value_heads = num_key_value_heads or num_heads
+        self.head_dim = hidden_size // num_heads
+        self.scale = self.head_dim ** -0.5
+        self.attn_weights: torch.Tensor | None = None
+        self.last_qk_logits: torch.Tensor | None = None
+        self._combined_qkv = combined_qkv
+        if combined_qkv:
+            self.c_attn = nn.Linear(hidden_size, hidden_size * 3, bias=False)
+        else:
+            self.q_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+            kv_hidden_size = self.num_key_value_heads * self.head_dim
+            self.k_proj = nn.Linear(hidden_size, kv_hidden_size, bias=False)
+            self.v_proj = nn.Linear(hidden_size, kv_hidden_size, bias=False)
+
+    def _project(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        batch_size, seq_len, _ = hidden_states.shape
+        if self._combined_qkv:
+            query_proj, key_proj, value_proj = self.c_attn(hidden_states).chunk(3, dim=-1)
+            key_heads = self.num_heads
+        else:
+            query_proj = self.q_proj(hidden_states)
+            key_proj = self.k_proj(hidden_states)
+            value_proj = self.v_proj(hidden_states)
+            key_heads = self.num_key_value_heads
+
+        query = query_proj.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        key = key_proj.view(batch_size, seq_len, key_heads, self.head_dim).transpose(1, 2)
+        value = value_proj.view(batch_size, seq_len, key_heads, self.head_dim).transpose(1, 2)
+        if key_heads != self.num_heads:
+            repeats = self.num_heads // key_heads
+            key = key.repeat_interleave(repeats, dim=1)
+            value = value.repeat_interleave(repeats, dim=1)
+        return query, key, value
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        query, key, value = self._project(hidden_states)
+        self.last_qk_logits = torch.matmul(query, key.transpose(-2, -1)) * self.scale
+        self.attn_weights = torch.softmax(self.last_qk_logits, dim=-1)
+        attn_output = torch.matmul(self.attn_weights, value)
+        batch_size, _, seq_len, _ = attn_output.shape
+        return attn_output.transpose(1, 2).reshape(batch_size, seq_len, self.hidden_size)
+
+
+class DummyFinalNormLlamaLayer(nn.Module):
+    def __init__(self, hidden_size: int, num_heads: int, num_key_value_heads: int) -> None:
+        super().__init__()
+        self.self_attn = DummyFinalNormAttention(
+            hidden_size,
+            num_heads,
+            num_key_value_heads=num_key_value_heads,
+        )
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        return self.self_attn(hidden_states)
+
+
+class DummyFinalNormLlamaInner(nn.Module):
+    def __init__(self, hidden_size: int, num_heads: int, num_key_value_heads: int) -> None:
+        super().__init__()
+        self.layers = nn.ModuleList(
+            [DummyFinalNormLlamaLayer(hidden_size, num_heads, num_key_value_heads)]
+        )
+        self.norm = nn.LayerNorm(hidden_size)
+
+
+class DummyFinalNormLlamaModel(nn.Module):
+    def __init__(self, hidden_size: int = 8, num_heads: int = 2, num_key_value_heads: int = 1) -> None:
+        super().__init__()
+        self.embedding = nn.Embedding(32, hidden_size)
+        self.model = DummyFinalNormLlamaInner(hidden_size, num_heads, num_key_value_heads)
+        self.config = SimpleNamespace(
+            num_attention_heads=num_heads,
+            num_key_value_heads=num_key_value_heads,
+            hidden_size=hidden_size,
+        )
+
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
+    def forward(self, *, input_ids: torch.Tensor, attention_mask=None, output_attentions=None, output_hidden_states=None, return_dict=None, **kwargs):
+        embeddings = self.embedding(input_ids)
+        layer_output = embeddings
+        attentions = []
+        for layer in self.model.layers:
+            layer_output = layer(layer_output)
+            attentions.append(layer.self_attn.attn_weights)
+        final_hidden = self.model.norm(layer_output)
+        return SimpleNamespace(
+            hidden_states=(embeddings, layer_output, final_hidden),
+            attentions=tuple(attentions) if output_attentions else None,
+        )
+
+
+class DummyFinalNormGPT2Block(nn.Module):
+    def __init__(self, hidden_size: int, num_heads: int) -> None:
+        super().__init__()
+        self.attn = DummyFinalNormAttention(
+            hidden_size,
+            num_heads,
+            combined_qkv=True,
+            attn_attr="attn",
+        )
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        return self.attn(hidden_states)
+
+
+class DummyFinalNormGPT2Inner(nn.Module):
+    def __init__(self, hidden_size: int, num_heads: int) -> None:
+        super().__init__()
+        self.h = nn.ModuleList([DummyFinalNormGPT2Block(hidden_size, num_heads)])
+        self.ln_f = nn.LayerNorm(hidden_size)
+
+
+class DummyFinalNormGPT2Model(nn.Module):
+    def __init__(self, hidden_size: int = 8, num_heads: int = 2) -> None:
+        super().__init__()
+        self.embedding = nn.Embedding(32, hidden_size)
+        self.transformer = DummyFinalNormGPT2Inner(hidden_size, num_heads)
+        self.config = SimpleNamespace(n_head=num_heads, n_embd=hidden_size)
+
+    @property
+    def device(self):
+        return next(self.parameters()).device
+
+    def forward(self, *, input_ids: torch.Tensor, attention_mask=None, output_attentions=None, output_hidden_states=None, return_dict=None, **kwargs):
+        embeddings = self.embedding(input_ids)
+        layer_output = embeddings
+        attentions = []
+        for layer in self.transformer.h:
+            layer_output = layer(layer_output)
+            attentions.append(layer.attn.attn_weights)
+        final_hidden = self.transformer.ln_f(layer_output)
+        return SimpleNamespace(
+            hidden_states=(embeddings, layer_output, final_hidden),
+            attentions=tuple(attentions) if output_attentions else None,
+        )
+
+
+def _make_supported_model(model_name: str) -> nn.Module:
+    if model_name == "openai-community/gpt2":
+        return DummyFinalNormGPT2Model()
+    if model_name in {"meta-llama/Llama-2-7b-hf", "meta-llama/Llama-3.2-1B"}:
+        return DummyFinalNormLlamaModel()
+    raise AssertionError(model_name)
+
+
+def _final_norm_module(model_name: str, model: nn.Module) -> nn.Module:
+    if model_name == "openai-community/gpt2":
+        return model.transformer.ln_f
+    return model.model.norm
+
+
+def _merge_attention_heads(attn_tensor: torch.Tensor) -> torch.Tensor:
+    num_heads, seq_len, head_dim = attn_tensor.shape
+    return attn_tensor.transpose(0, 1).reshape(seq_len, num_heads * head_dim)
+
+
+@pytest.mark.parametrize("model_name", SUPPORTED_MODELS)
+def test_supported_models_attention_and_final_norm_relationships(monkeypatch, model_name):
+    model = _make_supported_model(model_name)
+    tokenizer = DummyTokenizer()
+    _patch_model_and_tokenizer(monkeypatch, model, tokenizer)
+
+    feature_cfg = FeatureConfig(
+        feature_names=[
+            "embeddings",
+            "layer.layer_00.attn_output",
+            "layer.layer_00.output",
+            "attn.layer_00.query",
+            "attn.layer_00.key",
+            "attn.layer_00.value",
+            "attn.layer_00.weights",
+        ]
+    )
+    extractor = BaseFeatureExtractor("dummy", feature_cfg)
+    dataset = [{"idx": "a", "input_ids": torch.tensor([1, 2, 3], dtype=torch.long)}]
+    results = list(extractor.extract_features(DataLoader(dataset, batch_size=1)))
+
+    assert len(results) == 1
+    result = results[0]
+    with torch.no_grad():
+        outputs = model(
+            input_ids=dataset[0]["input_ids"].unsqueeze(0),
+            output_hidden_states=True,
+            output_attentions=True,
+            return_dict=True,
+        )
+
+    embeddings = result.embeddings
+    assert embeddings is not None
+    assert torch.allclose(embeddings, outputs.hidden_states[0][0], atol=1e-5, rtol=1e-5)
+
+    attention_features = result.attention_features[0]
+    query = attention_features.query
+    key = attention_features.key
+    value = attention_features.value
+    attn_weights = attention_features.attn_weights
+    assert query is not None and key is not None and value is not None and attn_weights is not None
+
+    qk_logits = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(query.shape[-1])
+    expected_weights = torch.softmax(qk_logits, dim=-1)
+    assert torch.allclose(expected_weights, attn_weights, atol=1e-5, rtol=1e-5)
+    assert outputs.attentions is not None
+    assert torch.allclose(attn_weights, outputs.attentions[0][0], atol=1e-5, rtol=1e-5)
+
+    merged_attn_output = _merge_attention_heads(torch.matmul(attn_weights, value))
+    layer_features = result.layer_features[0]
+    assert layer_features.attn_output is not None
+    assert torch.allclose(merged_attn_output, layer_features.attn_output, atol=1e-5, rtol=1e-5)
+
+    assert layer_features.output is not None
+    assert not torch.allclose(layer_features.output, outputs.hidden_states[-1][0], atol=1e-5, rtol=1e-5)
+    final_norm_output = _final_norm_module(model_name, model)(layer_features.output.unsqueeze(0))[0]
+    assert torch.allclose(final_norm_output, outputs.hidden_states[-1][0], atol=1e-5, rtol=1e-5)
