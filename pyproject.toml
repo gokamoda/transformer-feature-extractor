@@ -74,6 +74,9 @@ explicit = true
 [tool.pytest.ini_options]
 pythonpath = "src"
 testpaths = ["src", "tests"]
+markers = [
+    "integration: tests that load real pretrained models",
+]
 
 [tool.ruff]
 exclude = [".git", ".mypy_cache", ".ruff_cache", ".venv", "third_party"]
