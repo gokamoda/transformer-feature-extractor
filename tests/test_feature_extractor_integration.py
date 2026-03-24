@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import math
-
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -11,6 +9,8 @@ from torch.utils.data import DataLoader  # noqa: E402
 from feature_extractor.configs.schema import FeatureConfig  # noqa: E402
 from feature_extractor.extractor.base import BaseFeatureExtractor  # noqa: E402
 from feature_extractor.models import SUPPORTED_MODELS  # noqa: E402
+from feature_extractor.models.architecture import get_model_architecture  # noqa: E402
+from feature_extractor.reconstruction import reconstruct_attention_scores  # noqa: E402
 
 
 def _patch_model_and_tokenizer(monkeypatch, model, tokenizer) -> None:
@@ -112,7 +112,22 @@ def test_supported_models_attention_and_final_norm_relationships_real_models(
     assert query is not None and key is not None and value is not None
     assert attn_weights is not None
 
-    qk_logits = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(query.shape[-1])
+    architecture = get_model_architecture(model.config.architectures[0])
+    if "position_ids" in model_inputs:
+        position_ids = model_inputs["position_ids"][0].detach().cpu()
+    else:
+        sample_mask = model_inputs["attention_mask"][0].detach().cpu()
+        position_ids = sample_mask.long().cumsum(dim=-1) - 1
+        position_ids.masked_fill_(sample_mask == 0, 0)
+    layer_module = getattr(getattr(model, architecture.model_field), architecture.layer_field)[0]
+    layer_module = getattr(layer_module, architecture.attn_field)
+    qk_logits = reconstruct_attention_scores(
+        architecture=architecture,
+        query=query,
+        key=key,
+        layer_module=layer_module,
+        position_ids=position_ids,
+    )
     expected_weights = torch.softmax(qk_logits, dim=-1)
     assert torch.allclose(expected_weights, attn_weights, atol=1e-4, rtol=1e-4)
     assert outputs.attentions is not None

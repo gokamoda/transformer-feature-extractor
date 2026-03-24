@@ -471,6 +471,20 @@ class AttentionHookManager(HookManager):
             raise ValueError(msg)
         return output[sample_index].detach().cpu()
 
+    @property
+    def architecture(self) -> BaseModelArchitecture:
+        return self._architecture
+
+    def attention_module(self, layer_idx: int) -> nn.Module:
+        modules = self._resolve_attention_modules()
+        if layer_idx >= len(modules):
+            msg = (
+                f"Layer index {layer_idx} is out of range for attention modules "
+                f"(found {len(modules)} layers)."
+            )
+            raise IndexError(msg)
+        return modules[layer_idx]
+
     def _projection_cache_or_raise(self) -> ProjectionCache:
         if self.projection_cache is None:
             msg = "Attention projection hooks are not installed."

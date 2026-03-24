@@ -23,6 +23,7 @@ from feature_extractor.hooks.results import (
 )
 from feature_extractor.models.architecture import get_model_architecture
 from feature_extractor.models.load import load_causal_model, load_tokenizer
+from feature_extractor.reconstruction import reconstruct_attention_scores
 
 _RESIDUAL_FEATURE_RE = re.compile(r"residual\.layer_(\d+)\.(pre_attn|post_ffn)")
 _LAYER_FEATURE_RE = re.compile(r"layer\.layer_(\d+)\.(attn_output|ffn_output|output)")
@@ -286,6 +287,7 @@ class BaseFeatureExtractor:
                         attention_hooks,
                         idx,
                         feature_plan,
+                        model_inputs,
                     )
                     mlp_features = self._build_mlp_features(
                         feature_plan,
@@ -482,6 +484,7 @@ class BaseFeatureExtractor:
         attention_hooks: AttentionHookManager | None,
         sample_index: int,
         feature_plan: _FeaturePlan,
+        model_inputs: dict[str, torch.Tensor],
     ) -> list[AttentionFeatures]:
         attention_features: list[AttentionFeatures] = []
         for layer_idx in feature_plan.sorted_attention_layers:
@@ -514,11 +517,32 @@ class BaseFeatureExtractor:
                 qk_logits = attention_hooks.qk_logits(layer_idx, sample_index)
                 qk_logits = self._maybe_cast_result_tensor(qk_logits)
                 if qk_logits is None:
-                    _logger.warning(
-                        "Model did not expose attention logits for layer %d; "
-                        "qk_logits will be None.",
-                        layer_idx,
-                    )
+                    if query is not None and key is not None and attention_hooks is not None:
+                        try:
+                            qk_logits = reconstruct_attention_scores(
+                                architecture=attention_hooks.architecture,
+                                query=query,
+                                key=key,
+                                layer_module=attention_hooks.attention_module(layer_idx),
+                                position_ids=self._resolve_position_ids(
+                                    model_inputs=model_inputs,
+                                    sample_index=sample_index,
+                                ),
+                            )
+                            qk_logits = self._maybe_cast_result_tensor(qk_logits)
+                        except Exception as exc:
+                            _logger.warning(
+                                "Failed to reconstruct qk logits for layer %d: %s. "
+                                "qk_logits will be None.",
+                                layer_idx,
+                                exc,
+                            )
+                    if qk_logits is None:
+                        _logger.warning(
+                            "Model did not expose attention logits for layer %d; "
+                            "qk_logits will be None.",
+                            layer_idx,
+                        )
             weights = None
             if layer_idx in feature_plan.attn_weights_layers:
                 if attentions is not None:
@@ -583,6 +607,24 @@ class BaseFeatureExtractor:
             return None
         weights = attention_hooks.attn_weights(layer_idx, sample_index)
         return weights
+
+    def _resolve_position_ids(
+        self,
+        *,
+        model_inputs: dict[str, torch.Tensor],
+        sample_index: int,
+    ) -> torch.Tensor | None:
+        position_ids = model_inputs.get("position_ids")
+        if isinstance(position_ids, torch.Tensor):
+            return position_ids[sample_index].detach().cpu()
+
+        attention_mask = model_inputs.get("attention_mask")
+        if not isinstance(attention_mask, torch.Tensor):
+            return None
+        sample_mask = attention_mask[sample_index]
+        cumulative = sample_mask.long().cumsum(dim=-1) - 1
+        cumulative.masked_fill_(sample_mask == 0, 0)
+        return cumulative.detach().cpu()
 
     def _build_mlp_features(
         self,
