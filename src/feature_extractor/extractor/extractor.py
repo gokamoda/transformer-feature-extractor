@@ -4,8 +4,7 @@ from transformers import PreTrainedModel, TokenizersBackend
 
 from feature_extractor.configs.schema import FeatureConfig
 from feature_extractor.hooks import HookResult, LayerHookManager, LayerHookResult
-from feature_extractor.models.architecture import get_model_architecture
-from feature_extractor.models.load import load_causal_model, load_tokenizer
+from feature_extractor.models import load_causal_model, load_tokenizer, get_model_architecture
 
 
 class FeatureExtractor:
