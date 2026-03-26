@@ -6,11 +6,11 @@ from transformers import (
     TokenizersBackend,
 )
 
-from utils.logger import init_logging
+from feature_extractor.logger import init_logging
 
 from .base_architecture import BaseModelArchitecture
-from .llama import LlamaArchitecture
 from .gpt2 import GPT2Architecture
+from .llama import LlamaArchitecture
 
 SUPPORTED_MODELS = [
     "openai-community/gpt2",

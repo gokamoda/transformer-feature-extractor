@@ -1,5 +1,5 @@
-from feature_extractor.models import SUPPORTED_MODELS
 from feature_extractor.models import (
+    SUPPORTED_MODELS,
     get_model_architecture,
 )
 

@@ -5,7 +5,7 @@ import torch
 from torch import nn
 from torch.utils.hooks import RemovableHandle
 
-from utils.logger import init_logging
+from feature_extractor.logger import init_logging
 
 logger = init_logging(__name__)
 

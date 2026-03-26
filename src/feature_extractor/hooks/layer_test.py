@@ -4,7 +4,11 @@ from transformers import AutoModelForCausalLM
 
 from feature_extractor.extractor.extractor_test import _create_feature_config
 from feature_extractor.hooks.layer import LayerHookManager
-from feature_extractor.models import SUPPORTED_MODELS, load_tokenizer, get_model_architecture
+from feature_extractor.models import (
+    SUPPORTED_MODELS,
+    get_model_architecture,
+    load_tokenizer,
+)
 
 
 def test_resolve_layer_indices():
@@ -32,13 +36,16 @@ def test_hook(model_name):
 
     inputs = tokenizer("Hello, world!", return_tensors="pt")
     with torch.no_grad():
-        output = model(**inputs, return_dict_in_generate=True, output_hidden_states=True)
+        output = model(
+            **inputs, return_dict_in_generate=True, output_hidden_states=True
+        )
 
     assert isinstance(
         hook_manager.layer_hooks[0].result.hidden_states.shape, torch.Size
     )
 
-
-    assert torch.allclose(hook_manager.layer_hooks[0].result.hidden_states, output['hidden_states'][1][0])
+    assert torch.allclose(
+        hook_manager.layer_hooks[0].result.hidden_states, output["hidden_states"][1][0]
+    )
 
     hook_manager.remove_hooks()
