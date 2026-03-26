@@ -1,9 +1,15 @@
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, TokenizersBackend
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    PreTrainedModel,
+    TokenizersBackend,
+)
 
 from utils.logger import init_logging
 
 logger = init_logging(__name__)
+
 
 def load_causal_model(model_name_or_path: str) -> PreTrainedModel:
     if torch.cuda.is_available():

@@ -9,6 +9,7 @@ from utils.logger import init_logging
 
 logger = init_logging(__name__)
 
+
 @dataclass
 class AbstractResult:
     def __repr__(self):
@@ -165,8 +166,6 @@ class Hook:
                         if self.to_cpu and isinstance(v, torch.Tensor)
                         else v
                     )
-                    if k == "attn_weights":
-                        print("attn_weights: ", v)
             else:
                 assert len(self.output_keys) == 1, (
                     f"Output keys length {len(self.output_keys)} does not match expected "

@@ -1,5 +1,5 @@
-from feature_extractor.configs.schema import DebugConfig
+from feature_extractor.configs.schema import FeatureConfig
 
 __all__ = [
-    "DebugConfig",
+    "FeatureConfig",
 ]
