@@ -21,7 +21,7 @@ def test_resolve_layer_indices():
 @pytest.mark.parametrize("model_name", SUPPORTED_MODELS)
 def test_hook(model_name):
     model = AutoModelForCausalLM.from_pretrained(model_name)
-    architecture = get_model_architecture(model.__class__.__name__)
+    architecture = get_model_architecture(model)
     feature_config = _create_feature_config()
 
     hook_manager = LayerHookManager(

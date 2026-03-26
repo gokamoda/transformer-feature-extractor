@@ -20,6 +20,12 @@ class BaseModelArchitecture:
 
     config_num_layers: str = "num_hidden_layers"
 
+    # Capability flags. Keep these explicit so callers can fail fast for
+    # unsupported feature families.
+    supports_layer_output: bool = True
+    supports_attention_qkv: bool = False
+    supports_mlp_output: bool = False
+
     model_field: str = "model"
     word_embedding_field: str = "embed_tokens"
     absolute_pos_embedding_field: str | None = None  # default to RoPE
