@@ -18,7 +18,10 @@ def load_causal_model(model_name_or_path: str) -> PreTrainedModel:
                 model_name_or_path, device_map="auto"
             )
         else:
-            model = AutoModelForCausalLM.from_pretrained(model_name_or_path).to("cuda")
+            model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
+                model_name_or_path
+            )
+            model = model.to("cuda")  # ty: ignore
     else:
         model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
 
@@ -29,6 +32,6 @@ def load_causal_model(model_name_or_path: str) -> PreTrainedModel:
 
 def load_tokenizer(model_name_or_path: str) -> TokenizersBackend:
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, padding_side="left")
-    tokenizer.pad_token_id = tokenizer.eos_token_id
     assert isinstance(tokenizer, TokenizersBackend), tokenizer.__class__
+    tokenizer.pad_token_id = tokenizer.eos_token_id
     return tokenizer

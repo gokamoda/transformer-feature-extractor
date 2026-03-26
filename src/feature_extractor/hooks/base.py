@@ -71,26 +71,27 @@ class AbstractBatchResult(AbstractResult):
         """Get the batch size."""
         for v in self.__dict__.values():
             if isinstance(v, torch.Tensor):
-                return v.shape[0]
+                return int(v.shape[0])
             elif isinstance(v, AbstractBatchResult):
                 return v.get_batch_size()
+            else:
+                continue
+        raise ValueError("No tensor found in the result to determine batch size.")
 
 
 class Hook:
     """Base class for hooks."""
 
     hook: RemovableHandle
-    result: AbstractBatchResult
-    result_class: type[AbstractBatchResult]
+    result: AbstractBatchResult | None
     to_cpu: bool
-    positional_args_keys: list[str]
-    output_keys: list[str]
+    positional_args_keys: list[str] | None
+    output_keys: list[str] | None
     with_kwargs: bool
 
     def __init__(
         self,
         module: nn.Module,
-        result_class: AbstractBatchResult,
         to_cpu: bool = True,
         with_args: None | list[str] = None,
         with_kwargs: bool = False,
@@ -105,7 +106,6 @@ class Hook:
         self.with_kwargs = with_kwargs
 
         self.result = None
-        self.result_class = result_class
         self.to_cpu = to_cpu
 
     def hook_fn(
@@ -176,8 +176,12 @@ class Hook:
                     if self.to_cpu and isinstance(output, torch.Tensor)
                     else output
                 )
+        self.save_result(hook_result)
 
-        self.result = self.result_class(**hook_result)
+    def save_result(self, hook_result: dict):
+        raise NotImplementedError(
+            "save_result method must be implemented by subclasses"
+        )
 
     def remove(self):
         """Remove the hook."""

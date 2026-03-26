@@ -1,11 +1,12 @@
-from feature_extractor.hooks.layer import LayerHookManager
-from transformers import AutoModelForCausalLM
-from feature_extractor.models.architecture import get_model_architecture
-from feature_extractor.extractor.extractor_test import _create_feature_config
-from feature_extractor.models import SUPPORTED_MODELS
 import pytest
-import torch    
-from feature_extractor.models import load_tokenizer
+import torch
+from transformers import AutoModelForCausalLM
+
+from feature_extractor.extractor.extractor_test import _create_feature_config
+from feature_extractor.hooks.layer import LayerHookManager
+from feature_extractor.models import SUPPORTED_MODELS, load_tokenizer
+from feature_extractor.models.architecture import get_model_architecture
+
 
 def test_resolve_layer_indices():
     feature_config = _create_feature_config()
@@ -21,23 +22,21 @@ def test_hook(model_name):
     feature_config = _create_feature_config()
 
     hook_manager = LayerHookManager(
-        model=model,
-        architecture=architecture,
-        feature_cfg=feature_config
+        model=model, architecture=architecture, feature_cfg=feature_config
     )
 
-    assert len(hook_manager.layer_hooks) == 1, f"Expected 1 hook, got {len(hook_manager.layer_hooks)}"
+    assert len(hook_manager.layer_hooks) == 1, (
+        f"Expected 1 hook, got {len(hook_manager.layer_hooks)}"
+    )
 
     tokenizer = load_tokenizer(model_name)
 
     inputs = tokenizer("Hello, world!", return_tensors="pt")
     with torch.no_grad():
-        outputs = model(**inputs)
-    
-    assert isinstance(hook_manager.layer_hooks[0].result.hidden_states.shape, torch.Size)
+        model(**inputs)
 
-
+    assert isinstance(
+        hook_manager.layer_hooks[0].result.hidden_states.shape, torch.Size
+    )
 
     hook_manager.remove_hooks()
-
-

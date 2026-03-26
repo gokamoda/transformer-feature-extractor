@@ -1,5 +1,7 @@
 from feature_extractor.models import SUPPORTED_MODELS
-from feature_extractor.models.architecture import BaseModelArchitecture, get_model_architecture
+from feature_extractor.models.architecture import (
+    get_model_architecture,
+)
 
 
 def test_supported_models_have_architectures():

@@ -1,11 +1,14 @@
 from dataclasses import dataclass
+
 from torch.utils.data import Dataset
-from transformers import PreTrainedTokenizer
+from transformers import TokenizersBackend
+
 
 @dataclass
 class TextDataEntry:
     idx: str
     text: str
+
 
 class TextDataset(Dataset):
     def __init__(self, data: list[TextDataEntry]):
@@ -14,10 +17,11 @@ class TextDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-    def __getitem__(self, idx) -> TextDataEntry:
-        return self.data[idx]
-    
-def create_collator(tokenizer: PreTrainedTokenizer):
+    def __getitem__(self, index: int) -> TextDataEntry:
+        return self.data[index]
+
+
+def create_collator(tokenizer: TokenizersBackend):
     def collate_fn(batch: list[TextDataEntry]):
         texts = [entry.text for entry in batch]
         indices = [entry.idx for entry in batch]

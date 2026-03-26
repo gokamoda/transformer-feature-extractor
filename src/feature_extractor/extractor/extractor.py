@@ -1,17 +1,16 @@
 import torch
 from torch.utils.data import DataLoader
-from transformers import PreTrainedModel, PreTrainedTokenizer
+from transformers import PreTrainedModel, TokenizersBackend
 
 from feature_extractor.configs.schema import FeatureConfig
+from feature_extractor.hooks import HookResult, LayerHookManager, LayerHookResult
 from feature_extractor.models.architecture import get_model_architecture
 from feature_extractor.models.load import load_causal_model, load_tokenizer
-from feature_extractor.hooks import LayerHookManager
-from feature_extractor.hooks import HookResult, LayerHookResult
 
 
 class FeatureExtractor:
     model: PreTrainedModel
-    tokenizer: PreTrainedTokenizer
+    tokenizer: TokenizersBackend
     feature_cfg: FeatureConfig
     layer_hook: LayerHookManager | None = None
 
@@ -33,20 +32,20 @@ class FeatureExtractor:
             self.layer_hook = LayerHookManager(
                 model=self.model,
                 architecture=self.architecture,
-                feature_cfg=self.feature_cfg
+                feature_cfg=self.feature_cfg,
             )
 
     def get_model_num_layers(self):
         return getattr(self.model.config, self.architecture.config_num_layers)
 
     def get_features(self):
-        layer_result: list[LayerHookResult|None] | None = None
+        layer_result: list[LayerHookResult | None] | None = None
         if self.layer_hook is not None:
-            layer_result = self.layer_hook.get_features(num_layers=self.get_model_num_layers())
-        
-        return HookResult(
-            layers=layer_result
-        )
+            layer_result = self.layer_hook.get_features(
+                num_layers=self.get_model_num_layers()
+            )
+
+        return HookResult(layers=layer_result)
 
     @torch.no_grad()
     def extract_features(
@@ -60,5 +59,3 @@ class FeatureExtractor:
             )
 
             yield batch, self.get_features()
-
-

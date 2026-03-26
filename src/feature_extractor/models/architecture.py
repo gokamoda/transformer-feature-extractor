@@ -22,7 +22,7 @@ class BaseModelArchitecture:
 
     model_field: str = "model"
     word_embedding_field: str = "embed_tokens"
-    absolute_pos_embedding_field: str = None  # default to RoPE
+    absolute_pos_embedding_field: str | None = None  # default to RoPE
 
     layers_field: str = "layers"
     layer_return_fields: list[str] = field(default_factory=lambda: ["hidden_states"])
@@ -36,7 +36,9 @@ class BaseModelArchitecture:
             "past_key_values",
         ]
     )
-    attn_return_fields: list[str] = field(default_factory=lambda: ["attn_output", "attn_weights"])
+    attn_return_fields: list[str] = field(
+        default_factory=lambda: ["attn_output", "attn_weights"]
+    )
     attn_qkv_implementation: Literal["conv1d", "independent_linear"] = (
         QKV_IMPLEMENTATION_INDEPENDENT_LINEAR
     )
@@ -53,9 +55,9 @@ class BaseModelArchitecture:
     mlp_up_proj_field: str = "up_proj"
     mlp_down_proj_field: str = "down_proj"
 
-@dataclass
-class GPT2Architecture:
 
+@dataclass
+class GPT2Architecture(BaseModelArchitecture):
     config_num_layers: str = "n_layer"
 
     model_field: str = "transformer"

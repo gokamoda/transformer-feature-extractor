@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 
-from feature_extractor.typing import BATCH, HIDDEN_DIM, SEQUENCE, Tensor
-from feature_extractor.configs import FeatureConfig
-from feature_extractor.models import BaseModelArchitecture
 from transformers import PreTrainedModel
+
+from feature_extractor.configs import FeatureConfig
 from feature_extractor.hooks.base import Hook
+from feature_extractor.models import BaseModelArchitecture
+from feature_extractor.typing import BATCH, HIDDEN_DIM, SEQUENCE, Tensor
 
 from .base import AbstractBatchResult
 
@@ -14,21 +15,28 @@ class BatchHiddenStateObservationResult(AbstractBatchResult):
     hidden_states: Tensor[BATCH, SEQUENCE, HIDDEN_DIM]
 
 
+class LayerHook(Hook):
+    result: BatchHiddenStateObservationResult
+
+    def save_result(self, hook_result: dict):
+        self.result = BatchHiddenStateObservationResult(**hook_result)
+
+
 @dataclass
 class LayerHookResult:
     output: None | Tensor[BATCH, SEQUENCE, HIDDEN_DIM]
 
+
 class LayerHookManager:
     layer_indices: list[int]
-    layer_hooks: list[Hook]
-
+    layer_hooks: list[LayerHook]
 
     def __init__(
-            self,
-            model: PreTrainedModel,
-            architecture: BaseModelArchitecture,
-            feature_cfg: FeatureConfig
-        ):
+        self,
+        model: PreTrainedModel,
+        architecture: BaseModelArchitecture,
+        feature_cfg: FeatureConfig,
+    ):
         self.model_architecture = architecture
         self.feature_cfg = feature_cfg
         self.layer_indices = self._resolve_layer_index(self.feature_cfg)
@@ -36,14 +44,16 @@ class LayerHookManager:
         self.install_hook(model)
 
     def install_hook(self, model: PreTrainedModel):
-        layers_module = getattr(getattr(model, self.model_architecture.model_field), self.model_architecture.layers_field)
+        layers_module = getattr(
+            getattr(model, self.model_architecture.model_field),
+            self.model_architecture.layers_field,
+        )
         for index in self.layer_indices:
             self.layer_hooks.append(
-                Hook(
+                LayerHook(
                     module=layers_module[index],
-                    result_class=BatchHiddenStateObservationResult,
                     to_cpu=True,
-                    with_output=self.model_architecture.layer_return_fields
+                    with_output=self.model_architecture.layer_return_fields,
                 )
             )
 
@@ -57,7 +67,7 @@ class LayerHookManager:
             if feature_name.startswith("layers."):
                 return True
         return False
-    
+
     @staticmethod
     def _resolve_layer_index(feature_cfg: FeatureConfig) -> list[int]:
         layer_indices = []
@@ -68,14 +78,19 @@ class LayerHookManager:
                     try:
                         layer_index = int(parts[1].split("_")[1])
                         layer_indices.append(int(layer_index))
-                    except ValueError:
-                        raise ValueError(f"Invalid layer index in feature name: {feature_name}")
+                    except ValueError as e:
+                        raise ValueError(
+                            f"Invalid layer index in feature name: {feature_name}"
+                        ) from e
         return layer_indices
-    
+
     def get_features(self, num_layers: int) -> list[LayerHookResult | None]:
         features = [None] * num_layers
 
         for layer_index, hook in zip(self.layer_indices, self.layer_hooks):
+            assert num_layers > layer_index, (
+                f"Layer index {layer_index} out of range for model with {num_layers} layers"
+            )
             if hook.result is not None:
                 features[layer_index] = LayerHookResult(
                     output=hook.result.hidden_states

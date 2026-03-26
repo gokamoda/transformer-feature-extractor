@@ -28,8 +28,3 @@ class MLPFeatures:
 class NormFeatures:
     input: None | Tensor[SEQUENCE, HIDDEN_DIM]
     output: None | Tensor[SEQUENCE, HIDDEN_DIM]
-
-
-
-
-

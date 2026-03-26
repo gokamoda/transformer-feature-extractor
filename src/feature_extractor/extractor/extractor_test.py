@@ -1,11 +1,12 @@
-from feature_extractor.extractor.extractor import FeatureExtractor
-from feature_extractor.models import SUPPORTED_MODELS
 import pytest
+import torch
+from torch.utils.data import DataLoader
+
 from feature_extractor.configs.schema import FeatureConfig
 from feature_extractor.data.dataset import TextDataEntry, TextDataset, create_collator
-import torch
+from feature_extractor.extractor.extractor import FeatureExtractor
+from feature_extractor.models import SUPPORTED_MODELS
 
-from torch.utils.data import DataLoader
 
 def _create_feature_config():
     return FeatureConfig(
@@ -18,6 +19,7 @@ def _create_feature_config():
         batch_size=16,
     )
 
+
 def _create_dataset():
     return TextDataset(
         data=[
@@ -27,11 +29,12 @@ def _create_dataset():
     )
 
 
-
 @pytest.mark.parametrize("model_name", SUPPORTED_MODELS)
 def test_base_feature_extractor_initialization(model_name):
     config = _create_feature_config()
-    extractor = FeatureExtractor(model_name_or_path=model_name, feature_cfg=config, hook_dtype=torch.float16)
+    extractor = FeatureExtractor(
+        model_name_or_path=model_name, feature_cfg=config, hook_dtype=torch.float16
+    )
     assert extractor.model is not None
     assert extractor.tokenizer is not None
 
@@ -39,7 +42,9 @@ def test_base_feature_extractor_initialization(model_name):
 @pytest.mark.parametrize("model_name", SUPPORTED_MODELS)
 def test_base_feature_extractor(model_name):
     config = _create_feature_config()
-    extractor = FeatureExtractor(model_name_or_path=model_name, feature_cfg=config, hook_dtype=torch.float16)
+    extractor = FeatureExtractor(
+        model_name_or_path=model_name, feature_cfg=config, hook_dtype=torch.float16
+    )
     assert extractor.model is not None
     assert extractor.tokenizer is not None
 
@@ -54,7 +59,8 @@ def test_base_feature_extractor(model_name):
     for batch, hook_result in extractor.extract_features(dataloader):
         assert batch["indices"] == ["0", "1"]
         assert hook_result.layers[0] is not None
-        assert len(hook_result.layers[0].output.shape) == 3 # (batch_size, seq_len, hidden_dim)
+        assert (
+            len(hook_result.layers[0].output.shape) == 3
+        )  # (batch_size, seq_len, hidden_dim)
         assert hook_result.layers[0].output.shape[0] == 2
         assert hook_result.layers[1] is None
-
