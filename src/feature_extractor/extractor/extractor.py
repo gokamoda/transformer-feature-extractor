@@ -25,13 +25,17 @@ class FeatureExtractor:
     ) -> None:
         self.model = load_causal_model(model_name_or_path)
         self.tokenizer = load_tokenizer(model_name_or_path)
-        self.architecture = get_model_architecture(self.model.__class__.__name__)
+        self.architecture = get_model_architecture(self.model)
         self.hook_dtype = hook_dtype
         self.feature_cfg = feature_cfg
         self.install_hooks()
 
     def install_hooks(self):
         if LayerHookManager.need_layer_hook(self.feature_cfg):
+            if not self.architecture.supports_layer_output:
+                raise ValueError(
+                    f"Architecture {self.architecture.__class__.__name__} does not support layer output hooks."
+                )
             self.layer_hook = LayerHookManager(
                 model=self.model,
                 architecture=self.architecture,

@@ -1,9 +1,12 @@
+from dataclasses import dataclass
+from typing import Callable
+
 import torch
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     PreTrainedModel,
-    TokenizersBackend,
+    PreTrainedTokenizerBase,
 )
 
 from feature_extractor.logger import init_logging
@@ -24,10 +27,29 @@ __all__ = [
     "SUPPORTED_MODELS",
     "get_model_architecture",
     "BaseModelArchitecture",
+    "resolve_model_architecture",
 ]
 
 
 logger = init_logging(__name__)
+
+
+@dataclass(frozen=True)
+class ArchitectureRegistryEntry:
+    matcher: Callable[[str], bool]
+    factory: Callable[[], BaseModelArchitecture]
+
+
+ARCHITECTURE_REGISTRY: tuple[ArchitectureRegistryEntry, ...] = (
+    ArchitectureRegistryEntry(
+        matcher=lambda class_name: "LlamaForCausalLM" in class_name,
+        factory=LlamaArchitecture,
+    ),
+    ArchitectureRegistryEntry(
+        matcher=lambda class_name: "GPT2LMHeadModel" in class_name,
+        factory=GPT2Architecture,
+    ),
+)
 
 
 def load_causal_model(model_name_or_path: str) -> PreTrainedModel:
@@ -37,9 +59,7 @@ def load_causal_model(model_name_or_path: str) -> PreTrainedModel:
                 model_name_or_path, device_map="auto"
             )
         else:
-            model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
-                model_name_or_path
-            )
+            model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
             model = model.to("cuda")  # ty: ignore
     else:
         model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
@@ -49,23 +69,34 @@ def load_causal_model(model_name_or_path: str) -> PreTrainedModel:
     return model
 
 
-def load_tokenizer(model_name_or_path: str) -> TokenizersBackend:
+def load_tokenizer(model_name_or_path: str) -> PreTrainedTokenizerBase:
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, padding_side="left")
-    assert isinstance(tokenizer, TokenizersBackend), tokenizer.__class__
     tokenizer.pad_token_id = tokenizer.eos_token_id
     return tokenizer
 
 
-def get_model_architecture(model_class_name: str) -> BaseModelArchitecture:
+def resolve_model_architecture(model_class_name: str) -> BaseModelArchitecture:
+    for entry in ARCHITECTURE_REGISTRY:
+        if entry.matcher(model_class_name):
+            return entry.factory()
+
+    logger.warning(
+        f"Model class name {model_class_name} not recognized. Using default architecture."
+    )
+    return BaseModelArchitecture()
+
+
+def get_model_architecture(model: PreTrainedModel | type[PreTrainedModel] | str) -> BaseModelArchitecture:
     """
-    Return a BaseModelArchitecture with appropriate field names for the given model class name.
+    Return a BaseModelArchitecture with appropriate field names for the given model.
+
+    Accepts a model instance, model class, or class name string.
     """
-    if "LlamaForCausalLM" in model_class_name:
-        return LlamaArchitecture()
-    elif "GPT2LMHeadModel" in model_class_name:
-        return GPT2Architecture()
+    if isinstance(model, str):
+        model_class_name = model
+    elif isinstance(model, type):
+        model_class_name = model.__name__
     else:
-        logger.warning(
-            f"Model class name {model_class_name} not recognized. Using default architecture."
-        )
-        return BaseModelArchitecture()
+        model_class_name = model.__class__.__name__
+
+    return resolve_model_architecture(model_class_name)
