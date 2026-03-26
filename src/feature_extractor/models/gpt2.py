@@ -28,22 +28,18 @@ class GPT2Architecture(BaseModelArchitecture):
     attn_pos_args: list[str] = field(
         default_factory=lambda: [
             "hidden_states",
-            "layer_past",
+            "past_key_values",
             "attention_mask",
-            "head_mask",
             "encoder_hidden_states",
             "encoder_attention_mask",
-            "use_cache",
-            "output_attentions",
+            "output_attentions"
         ]
     )
     attn_return_fields: list[str] = field(
-        default_factory=lambda: ["attn_output", "present", "attn_weights"]
+        default_factory=lambda: ["attn_output", "attn_weights"]
     )
     attn_qkv_implementation = QKV_IMPLEMENTATION_CONV1D
-    attn_q_proj_field: str = "c_attn"
-    attn_k_proj_field: str = "c_attn"
-    attn_v_proj_field: str = "c_attn"
+    attn_conv1d_field: str = "c_attn"
     attn_o_proj_field: str = "c_proj"
 
     mlp_field: str = "mlp"
