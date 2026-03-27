@@ -32,8 +32,8 @@ class FeatureConfig:
 
         patterns = [
             r"^embeddings$",
-            r"^layers\.layer_\d{2}\.output$",
-            r"^attn\.layer_\d{2}\.(query|key|value|attn_weights|output)$",
+            r"^layers\.layer_\d+\.output$",
+            r"^attn\.layer_\d+\.(query|key|value|attn_weights|output)$",
         ]
 
         for feature_name in self.feature_names:

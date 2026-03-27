@@ -299,6 +299,21 @@ class AttentionHookManager:
 
     def get_features(self, num_layers: int) -> list[AttentionHookResult | None]:
         features = []
+        query_features: list[Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM] | None] = [
+            None
+        ] * num_layers
+        key_features: list[Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM] | None] = [None] * (
+            num_layers
+        )
+        value_features: list[Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM] | None] = [
+            None
+        ] * num_layers
+        attn_weights_features: list[Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE] | None] = [
+            None
+        ] * num_layers
+        attn_output_features: list[Tensor[BATCH, SEQUENCE, HIDDEN_DIM] | None] = [
+            None
+        ] * num_layers
 
         if (
             len(self.query_layer_indices) > 0
