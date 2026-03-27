@@ -55,5 +55,6 @@ class GPT2Architecture(BaseModelArchitecture):
     mlp_pos_args: list[str] = field(default_factory=lambda: ["hidden_states"])
     mlp_return_fields: list[str] = field(default_factory=lambda: ["mlp_output"])
     mlp_implementation: Literal["standard", "gated"] = MLP_IMPLEMENTATION_STANDARD
+    mlp_activation_field: str = "act"
     mlp_up_proj_field: str = "c_fc"
     mlp_down_proj_field: str = "c_proj"
