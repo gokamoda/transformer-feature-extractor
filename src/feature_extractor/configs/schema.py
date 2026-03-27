@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field
 
 
@@ -15,16 +16,30 @@ class ExperimentConfig:
     debug: DebugConfig = field(default_factory=DebugConfig)
 
 
-
 @dataclass
 class FeatureConfig:
     feature_names: list[str] = field(
         default_factory=lambda: [
             "embeddings",
-            "residual.layer_00.pre_attn",
-            "residual.layer_00.post_ffn",
+            "layers.layer_00.output",
         ]
     )
     output_dir: str = "outputs/features"
     save_format: str = "pt"
     batch_size: int = 8
+
+    def __post_init__(self):
+
+        patterns = [
+            r"^embeddings$",
+            r"^layers\.layer_\d+\.output$",
+            r"^attn\.layer_\d+\.(query|key|value|attn_weights|output)$",
+            r"^mlp\.layer_\d+\.(activation|output)$",
+        ]
+
+        for feature_name in self.feature_names:
+            if not any(re.match(pattern, feature_name) for pattern in patterns):
+                raise ValueError(
+                    f"Invalid feature name: {feature_name}. "
+                    f"Must match one of the following patterns: {patterns}"
+                )

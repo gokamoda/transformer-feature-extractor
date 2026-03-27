@@ -14,15 +14,15 @@ install:
 
 
 ruff:
-	ruff check --fix --unsafe-fixes --extend-select I
-	ruff format
+	uv run ruff check --fix --unsafe-fixes --extend-select I
+	uv run ruff format
 
 
 envvar:
 	source scripts/env.sh
 
 ty:
-	ty check
+	uv run ty check
 
 greet:
 	uv run greet --config $(CONFIG)

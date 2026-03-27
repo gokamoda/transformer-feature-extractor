@@ -5,9 +5,10 @@ import torch
 from torch import nn
 from torch.utils.hooks import RemovableHandle
 
-from utils.logger import init_logging
+from feature_extractor.logger import init_logging
 
 logger = init_logging(__name__)
+
 
 @dataclass
 class AbstractResult:
@@ -70,26 +71,27 @@ class AbstractBatchResult(AbstractResult):
         """Get the batch size."""
         for v in self.__dict__.values():
             if isinstance(v, torch.Tensor):
-                return v.shape[0]
+                return int(v.shape[0])
             elif isinstance(v, AbstractBatchResult):
                 return v.get_batch_size()
+            else:
+                continue
+        raise ValueError("No tensor found in the result to determine batch size.")
 
 
 class Hook:
     """Base class for hooks."""
 
     hook: RemovableHandle
-    result: AbstractBatchResult
-    result_class: type[AbstractBatchResult]
+    result: AbstractBatchResult | None
     to_cpu: bool
-    positional_args_keys: list[str]
-    output_keys: list[str]
+    positional_args_keys: list[str] | None
+    output_keys: list[str] | None
     with_kwargs: bool
 
     def __init__(
         self,
         module: nn.Module,
-        result_class: AbstractBatchResult,
         to_cpu: bool = True,
         with_args: None | list[str] = None,
         with_kwargs: bool = False,
@@ -104,7 +106,6 @@ class Hook:
         self.with_kwargs = with_kwargs
 
         self.result = None
-        self.result_class = result_class
         self.to_cpu = to_cpu
 
     def hook_fn(
@@ -165,8 +166,6 @@ class Hook:
                         if self.to_cpu and isinstance(v, torch.Tensor)
                         else v
                     )
-                    if k == "attn_weights":
-                        print("attn_weights: ", v)
             else:
                 assert len(self.output_keys) == 1, (
                     f"Output keys length {len(self.output_keys)} does not match expected "
@@ -177,8 +176,12 @@ class Hook:
                     if self.to_cpu and isinstance(output, torch.Tensor)
                     else output
                 )
+        self.save_result(hook_result)
 
-        self.result = self.result_class(**hook_result)
+    def save_result(self, hook_result: dict):
+        raise NotImplementedError(
+            "save_result method must be implemented by subclasses"
+        )
 
     def remove(self):
         """Remove the hook."""

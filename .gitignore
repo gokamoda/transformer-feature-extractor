@@ -12,3 +12,4 @@ sftp.json
 uv.lock
 build
 *.egg-info
+.pytest_cache
