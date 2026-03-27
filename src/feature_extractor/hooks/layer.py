@@ -39,9 +39,13 @@ class LayerHookManager:
     ):
         self.model_architecture = architecture
         self.feature_cfg = feature_cfg
-        self.layer_indices = self._resolve_layer_index(self.feature_cfg)
-        self.layer_hooks = []
+        self.reset_hooks()
+        self._resolve_layer_index(self.feature_cfg)
         self.install_hook(model)
+
+    def reset_hooks(self):
+        self.layer_indices = []
+        self.layer_hooks = []
 
     def install_hook(self, model: PreTrainedModel):
         layers_module = getattr(
@@ -68,21 +72,18 @@ class LayerHookManager:
                 return True
         return False
 
-    @staticmethod
-    def _resolve_layer_index(feature_cfg: FeatureConfig) -> list[int]:
-        layer_indices = []
+    def _resolve_layer_index(self, feature_cfg: FeatureConfig) -> None:
         for feature_name in feature_cfg.feature_names:
             if feature_name.startswith("layers."):
                 parts = feature_name.split(".")
                 if len(parts) == 3 and parts[1].startswith("layer_"):
                     try:
                         layer_index = int(parts[1].split("_")[1])
-                        layer_indices.append(int(layer_index))
+                        self.layer_indices.append(int(layer_index))
                     except ValueError as e:
                         raise ValueError(
                             f"Invalid layer index in feature name: {feature_name}"
                         ) from e
-        return layer_indices
 
     def get_features(self, num_layers: int) -> list[LayerHookResult | None]:
         features = [None] * num_layers

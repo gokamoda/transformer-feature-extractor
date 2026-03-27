@@ -11,13 +11,6 @@ from feature_extractor.models import (
 )
 
 
-def test_resolve_layer_indices():
-    feature_config = _create_feature_config()
-
-    layer_indices = LayerHookManager._resolve_layer_index(feature_config)
-    assert layer_indices == [0], f"Expected [0], got {layer_indices}"
-
-
 @pytest.mark.parametrize("model_name", SUPPORTED_MODELS)
 def test_hook(model_name):
     model = AutoModelForCausalLM.from_pretrained(model_name)
@@ -26,6 +19,9 @@ def test_hook(model_name):
 
     hook_manager = LayerHookManager(
         model=model, architecture=architecture, feature_cfg=feature_config
+    )
+    assert hook_manager.layer_indices == [0], (
+        f"Expected layer_indices [0], got {hook_manager.layer_indices}"
     )
 
     assert len(hook_manager.layer_hooks) == 1, (

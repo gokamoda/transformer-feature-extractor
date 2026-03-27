@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from .base_architecture import BaseModelArchitecture
+from .architecture import BaseModelArchitecture
 
 
 @dataclass

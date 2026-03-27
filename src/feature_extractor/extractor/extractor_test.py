@@ -6,6 +6,11 @@ from feature_extractor.configs.schema import FeatureConfig
 from feature_extractor.data.dataset import TextDataEntry, TextDataset, create_collator
 from feature_extractor.extractor.extractor import FeatureExtractor
 from feature_extractor.models import SUPPORTED_MODELS
+from feature_extractor.models.architecture import (
+    get_hidden_size,
+    get_hidden_size_per_head,
+    get_num_attn_heads,
+)
 
 
 def _create_feature_config():
@@ -13,6 +18,9 @@ def _create_feature_config():
         feature_names=[
             "embeddings",
             "layers.layer_00.output",
+            "attn.layer_00.query",
+            "attn.layer_01.key",
+            "attn.layer_00.value",
         ],
         output_dir="outputs/test_features",
         save_format="pt",
@@ -30,7 +38,7 @@ def _create_dataset():
 
 
 @pytest.mark.parametrize("model_name", SUPPORTED_MODELS)
-def test_base_feature_extractor_initialization(model_name):
+def test_feature_extractor_initialization(model_name):
     config = _create_feature_config()
     extractor = FeatureExtractor(
         model_name_or_path=model_name, feature_cfg=config, hook_dtype=torch.float16
@@ -40,7 +48,7 @@ def test_base_feature_extractor_initialization(model_name):
 
 
 @pytest.mark.parametrize("model_name", SUPPORTED_MODELS)
-def test_base_feature_extractor(model_name):
+def test_feature_extractor(model_name):
     config = _create_feature_config()
     extractor = FeatureExtractor(
         model_name_or_path=model_name, feature_cfg=config, hook_dtype=torch.float16
@@ -56,11 +64,54 @@ def test_base_feature_extractor(model_name):
         batch_size=2,
         collate_fn=collator,
     )
+
+    hidden_size = get_hidden_size(extractor.model.config, extractor.architecture)
+    head_size = get_hidden_size_per_head(extractor.model.config, extractor.architecture)
+    num_attn_heads = get_num_attn_heads(extractor.model.config, extractor.architecture)
     for batch, hook_result in extractor.extract_features(dataloader):
+        # batch data
         assert batch["indices"] == ["0", "1"]
+
+        # layer features
         assert hook_result.layers[0] is not None
         assert (
             len(hook_result.layers[0].output.shape) == 3
         )  # (batch_size, seq_len, hidden_dim)
         assert hook_result.layers[0].output.shape[0] == 2
+        assert hook_result.layers[0].output.shape[2] == hidden_size
         assert hook_result.layers[1] is None
+
+        # attention features
+        assert hook_result.attn[0] is not None
+        assert hook_result.attn[1] is not None
+
+        assert hook_result.attn[0].query is not None
+        assert hook_result.attn[1].query is None
+        assert (
+            len(hook_result.attn[0].query.shape) == 4
+        )  # (batch_size, num_heads, seq_len, head_dim)
+        assert hook_result.attn[0].query.shape[0] == 2
+        assert hook_result.attn[0].query.shape[1] == num_attn_heads
+        assert hook_result.attn[0].query.shape[-1] == head_size
+
+        assert hook_result.attn[0].key is None
+        assert hook_result.attn[1].key is not None
+        assert (
+            len(hook_result.attn[1].key.shape) == 4
+        )  # (batch_size, num_kv_heads, seq_len, head_dim)
+        assert hook_result.attn[1].key.shape[0] == 2
+        assert hook_result.attn[1].key.shape[-1] == head_size
+
+        assert hook_result.attn[0].value is not None
+        assert hook_result.attn[1].value is None
+        assert (
+            len(hook_result.attn[0].value.shape) == 4
+        )  # (batch_size, num_kv_heads, seq_len, head_dim)
+        assert hook_result.attn[0].value.shape[0] == 2
+        assert hook_result.attn[0].value.shape[-1] == head_size
+
+        assert (
+            hook_result.attn[0].query.shape[2]
+            == hook_result.attn[1].key.shape[2]
+            == hook_result.attn[0].value.shape[2]
+        )  # seq_len

@@ -6,12 +6,12 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     PreTrainedModel,
-    PreTrainedTokenizerBase,
+    TokenizersBackend,
 )
 
 from feature_extractor.logger import init_logging
 
-from .base_architecture import BaseModelArchitecture
+from .architecture import BaseModelArchitecture, get_num_layers
 from .gpt2 import GPT2Architecture
 from .llama import LlamaArchitecture
 
@@ -26,6 +26,7 @@ __all__ = [
     "load_tokenizer",
     "SUPPORTED_MODELS",
     "get_model_architecture",
+    "get_num_layers",
     "BaseModelArchitecture",
     "resolve_model_architecture",
 ]
@@ -69,8 +70,11 @@ def load_causal_model(model_name_or_path: str) -> PreTrainedModel:
     return model
 
 
-def load_tokenizer(model_name_or_path: str) -> PreTrainedTokenizerBase:
+def load_tokenizer(model_name_or_path: str) -> TokenizersBackend:
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, padding_side="left")
+    assert isinstance(tokenizer, TokenizersBackend), (
+        f"Expected tokenizer to be a TokenizersBackend, got {type(tokenizer)}"
+    )
     tokenizer.pad_token_id = tokenizer.eos_token_id
     return tokenizer
 
@@ -86,7 +90,9 @@ def resolve_model_architecture(model_class_name: str) -> BaseModelArchitecture:
     return BaseModelArchitecture()
 
 
-def get_model_architecture(model: PreTrainedModel | type[PreTrainedModel] | str) -> BaseModelArchitecture:
+def get_model_architecture(
+    model: PreTrainedModel | type[PreTrainedModel] | str,
+) -> BaseModelArchitecture:
     """
     Return a BaseModelArchitecture with appropriate field names for the given model.
 

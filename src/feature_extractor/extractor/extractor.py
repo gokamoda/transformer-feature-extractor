@@ -3,9 +3,17 @@ from torch.utils.data import DataLoader
 from transformers import PreTrainedModel, TokenizersBackend
 
 from feature_extractor.configs.schema import FeatureConfig
-from feature_extractor.hooks import HookResult, LayerHookManager, LayerHookResult
+from feature_extractor.hooks import (
+    AttentionHookManager,
+    AttentionHookResult,
+    HookResult,
+    LayerHookManager,
+    LayerHookResult,
+)
 from feature_extractor.models import (
+    BaseModelArchitecture,
     get_model_architecture,
+    get_num_layers,
     load_causal_model,
     load_tokenizer,
 )
@@ -14,6 +22,7 @@ from feature_extractor.models import (
 class FeatureExtractor:
     model: PreTrainedModel
     tokenizer: TokenizersBackend
+    architecture: BaseModelArchitecture
     feature_cfg: FeatureConfig
     layer_hook: LayerHookManager | None = None
 
@@ -42,17 +51,32 @@ class FeatureExtractor:
                 feature_cfg=self.feature_cfg,
             )
 
+        if AttentionHookManager.need_attn_hook(self.feature_cfg):
+            if not self.architecture.supports_attention_qkv:
+                raise ValueError(
+                    f"Architecture {self.architecture.__class__.__name__} does not support attention QKV hooks."
+                )
+            self.attn_hook = AttentionHookManager(
+                model=self.model,
+                architecture=self.architecture,
+                feature_cfg=self.feature_cfg,
+            )
+
     def get_model_num_layers(self):
-        return getattr(self.model.config, self.architecture.config_num_layers)
+        return get_num_layers(self.model, self.architecture)
 
     def get_features(self):
         layer_result: list[LayerHookResult | None] | None = None
+        attn_result: list[AttentionHookResult | None] | None = None
         if self.layer_hook is not None:
             layer_result = self.layer_hook.get_features(
                 num_layers=self.get_model_num_layers()
             )
-
-        return HookResult(layers=layer_result)
+        if self.attn_hook is not None:
+            attn_result = self.attn_hook.get_features(
+                num_layers=self.get_model_num_layers()
+            )
+        return HookResult(layers=layer_result, attn=attn_result)
 
     @torch.no_grad()
     def extract_features(

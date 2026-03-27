@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-from .base_architecture import (
+from .architecture import (
     MLP_IMPLEMENTATION_STANDARD,
     QKV_IMPLEMENTATION_CONV1D,
     BaseModelArchitecture,
@@ -40,10 +40,15 @@ class GPT2Architecture(BaseModelArchitecture):
     attn_return_fields: list[str] = field(
         default_factory=lambda: ["attn_output", "present", "attn_weights"]
     )
-    attn_qkv_implementation = QKV_IMPLEMENTATION_CONV1D
-    attn_q_proj_field: str = "c_attn"
-    attn_k_proj_field: str = "c_attn"
-    attn_v_proj_field: str = "c_attn"
+    attn_qkv_implementation: Literal["conv1d", "independent_linear"] = (
+        QKV_IMPLEMENTATION_CONV1D
+    )
+    attn_q_proj_field: str | None = None
+    attn_k_proj_field: str | None = None
+    attn_v_proj_field: str | None = None
+    attn_qkv_proj_field: str | None = (
+        "c_attn"  # Only used if attn_qkv_implementation is "conv1d"
+    )
     attn_o_proj_field: str = "c_proj"
 
     mlp_field: str = "mlp"
