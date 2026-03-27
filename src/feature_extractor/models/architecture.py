@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-from transformers import PreTrainedConfig, PreTrainedModel
+from transformers import PreTrainedConfig
 
 from feature_extractor.logger import init_logging
 
@@ -70,8 +70,10 @@ class BaseModelArchitecture:
     mlp_down_proj_field: str = "down_proj"
 
 
-def get_num_layers(model: PreTrainedModel, architecture: BaseModelArchitecture) -> int:
-    return getattr(model.config, architecture.config_num_layers)
+def get_num_layers(
+    model_config: PreTrainedConfig, architecture: BaseModelArchitecture
+) -> int:
+    return getattr(model_config, architecture.config_num_layers)
 
 
 def get_num_attn_heads(

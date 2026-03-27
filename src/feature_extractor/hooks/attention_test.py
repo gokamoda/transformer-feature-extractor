@@ -14,6 +14,7 @@ from feature_extractor.models.architecture import (
     QKV_IMPLEMENTATION_INDEPENDENT_LINEAR,
     get_hidden_size,
     get_kv_hidden_size,
+    get_num_attn_heads,
 )
 
 
@@ -60,11 +61,47 @@ def test_attn_hook(model_name):
     tokenizer = load_tokenizer(model_name)
 
     inputs = tokenizer("Hello, world!", return_tensors="pt")
+    model.set_attn_implementation("eager")
     with torch.no_grad():
-        model(**inputs, return_dict_in_generate=True, output_hidden_states=True)
+        model(
+            **inputs,
+            return_dict_in_generate=True,
+            output_hidden_states=True,
+            output_attentions=True,
+        )
 
     hidden_size = get_hidden_size(model.config, architecture)
     kv_size = get_kv_hidden_size(model.config, architecture)
+    num_attn_heads = get_num_attn_heads(model.config, architecture)
+
+    assert isinstance(
+        hook_manager.attn_module_hooks[0].result.attn_weights.shape, torch.Size
+    ), "Expected attn_weights hook result to have a tensor shape"
+    assert hook_manager.attn_module_hooks[0].result.attn_weights.shape[0] == 1, (
+        f"Expected batch size 1 (batch size), got {hook_manager.attn_module_hooks[0].result.attn_weights.shape[0]}"
+    )
+    assert (
+        hook_manager.attn_module_hooks[0].result.attn_weights.shape[1] == num_attn_heads
+    ), (
+        f"Expected num_attention_heads {num_attn_heads}, got {hook_manager.attn_module_hooks[0].result.attn_weights.shape[1]}"
+    )
+    assert (
+        hook_manager.attn_module_hooks[0].result.attn_weights.shape[2]
+        == hook_manager.attn_module_hooks[0].result.attn_weights.shape[3]
+    ), (
+        f"Expected attn_weights shape[2] == shape[3], got {hook_manager.attn_module_hooks[0].result.attn_weights.shape}"
+    )
+
+    assert isinstance(
+        hook_manager.attn_module_hooks[0].result.output.shape, torch.Size
+    ), "Expected attn_output hook result to have a tensor shape"
+    assert hook_manager.attn_module_hooks[0].result.output.shape[0] == 1, (
+        f"Expected batch size 1 (batch size), got {hook_manager.attn_module_hooks[0].result.output.shape[0]}"
+    )
+    assert hook_manager.attn_module_hooks[0].result.output.shape[2] == hidden_size, (
+        f"Expected hidden size {hidden_size} (hidden size), got {hook_manager.attn_module_hooks[0].result.output.shape[2]}"
+    )
+
     if architecture.attn_qkv_implementation == QKV_IMPLEMENTATION_INDEPENDENT_LINEAR:
         assert isinstance(
             hook_manager.query_hooks[0].result.output.shape, torch.Size

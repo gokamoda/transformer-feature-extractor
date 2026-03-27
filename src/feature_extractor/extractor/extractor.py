@@ -25,6 +25,7 @@ class FeatureExtractor:
     architecture: BaseModelArchitecture
     feature_cfg: FeatureConfig
     layer_hook: LayerHookManager | None = None
+    attn_hook: AttentionHookManager | None = None
 
     def __init__(
         self,
@@ -38,6 +39,8 @@ class FeatureExtractor:
         self.hook_dtype = hook_dtype
         self.feature_cfg = feature_cfg
         self.install_hooks()
+        if self.attn_hook is not None and self.attn_hook.need_eager_attn():
+            self.model.set_attn_implementation("eager")
 
     def install_hooks(self):
         if LayerHookManager.need_layer_hook(self.feature_cfg):
@@ -62,19 +65,16 @@ class FeatureExtractor:
                 feature_cfg=self.feature_cfg,
             )
 
-    def get_model_num_layers(self):
-        return get_num_layers(self.model, self.architecture)
-
     def get_features(self):
         layer_result: list[LayerHookResult | None] | None = None
         attn_result: list[AttentionHookResult | None] | None = None
         if self.layer_hook is not None:
             layer_result = self.layer_hook.get_features(
-                num_layers=self.get_model_num_layers()
+                num_layers=get_num_layers(self.model.config, self.architecture)
             )
         if self.attn_hook is not None:
             attn_result = self.attn_hook.get_features(
-                num_layers=self.get_model_num_layers()
+                num_layers=get_num_layers(self.model.config, self.architecture)
             )
         return HookResult(layers=layer_result, attn=attn_result)
 
@@ -87,6 +87,10 @@ class FeatureExtractor:
             self.model(
                 input_ids=batch["input_ids"].to(self.model.device),
                 attention_mask=batch["attention_mask"].to(self.model.device),
+                return_dict_in_generate=True,
+                output_attentions=(
+                    self.attn_hook is not None and self.attn_hook.need_eager_attn()
+                ),
             )
 
             yield batch, self.get_features()

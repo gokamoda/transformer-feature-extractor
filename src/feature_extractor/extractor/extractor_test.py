@@ -21,6 +21,8 @@ def _create_feature_config():
             "attn.layer_00.query",
             "attn.layer_01.key",
             "attn.layer_00.value",
+            "attn.layer_00.attn_weights",
+            "attn.layer_01.output",
         ],
         output_dir="outputs/test_features",
         save_format="pt",
@@ -55,6 +57,11 @@ def test_feature_extractor(model_name):
     )
     assert extractor.model is not None
     assert extractor.tokenizer is not None
+    assert extractor.attn_hook is not None
+    assert extractor.attn_hook.attn_weights_outputs_combined_layer_indices == [0, 1]
+    assert extractor.attn_hook.attn_weights_layer_indices == [0]
+    assert extractor.attn_hook.output_layer_indices == [1]
+    assert len(extractor.attn_hook.attn_module_hooks) == 2
 
     dataset = _create_dataset()
     collator = create_collator(extractor.tokenizer)
@@ -115,3 +122,24 @@ def test_feature_extractor(model_name):
             == hook_result.attn[1].key.shape[2]
             == hook_result.attn[0].value.shape[2]
         )  # seq_len
+
+        # attention weights
+        assert hook_result.attn[0].attn_weights is not None
+        assert (
+            len(hook_result.attn[0].attn_weights.shape) == 4
+        )  # (batch_size, num_heads, seq_len, seq_len)
+        assert hook_result.attn[0].attn_weights.shape[0] == 2
+        assert hook_result.attn[0].attn_weights.shape[1] == num_attn_heads
+        assert (
+            hook_result.attn[0].attn_weights.shape[2]
+            == hook_result.attn[0].attn_weights.shape[3]
+        )  # seq_len
+
+        # attention output
+        assert hook_result.attn[0].output is None
+        assert hook_result.attn[1].output is not None
+        assert (
+            len(hook_result.attn[1].output.shape) == 3
+        )  # (batch_size, seq_len, hidden_dim)
+        assert hook_result.attn[1].output.shape[0] == 2
+        assert hook_result.attn[1].output.shape[2] == hidden_size
