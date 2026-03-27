@@ -9,6 +9,8 @@ from feature_extractor.hooks import (
     HookResult,
     LayerHookManager,
     LayerHookResult,
+    MLPHookManager,
+    MLPHookResult,
 )
 from feature_extractor.models import (
     BaseModelArchitecture,
@@ -26,6 +28,7 @@ class FeatureExtractor:
     feature_cfg: FeatureConfig
     layer_hook: LayerHookManager | None = None
     attn_hook: AttentionHookManager | None = None
+    mlp_hook: MLPHookManager | None = None
 
     def __init__(
         self,
@@ -64,10 +67,21 @@ class FeatureExtractor:
                 architecture=self.architecture,
                 feature_cfg=self.feature_cfg,
             )
+        if MLPHookManager.need_mlp_hook(self.feature_cfg):
+            if not self.architecture.supports_mlp_output:
+                raise ValueError(
+                    f"Architecture {self.architecture.__class__.__name__} does not support MLP hooks."
+                )
+            self.mlp_hook = MLPHookManager(
+                model=self.model,
+                architecture=self.architecture,
+                feature_cfg=self.feature_cfg,
+            )
 
     def get_features(self):
         layer_result: list[LayerHookResult | None] | None = None
         attn_result: list[AttentionHookResult | None] | None = None
+        mlp_result: list[MLPHookResult | None] | None = None
         if self.layer_hook is not None:
             layer_result = self.layer_hook.get_features(
                 num_layers=get_num_layers(self.model.config, self.architecture)
@@ -76,7 +90,11 @@ class FeatureExtractor:
             attn_result = self.attn_hook.get_features(
                 num_layers=get_num_layers(self.model.config, self.architecture)
             )
-        return HookResult(layers=layer_result, attn=attn_result)
+        if self.mlp_hook is not None:
+            mlp_result = self.mlp_hook.get_features(
+                num_layers=get_num_layers(self.model.config, self.architecture)
+            )
+        return HookResult(layers=layer_result, attn=attn_result, mlp=mlp_result)
 
     @torch.no_grad()
     def extract_features(

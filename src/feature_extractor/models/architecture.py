@@ -65,6 +65,7 @@ class BaseModelArchitecture:
     mlp_pos_args: list[str] = field(default_factory=lambda: ["hidden_states"])
     mlp_return_fields: list[str] = field(default_factory=lambda: ["mlp_output"])
     mlp_implementation: Literal["standard", "gated"] = MLP_IMPLEMENTATION_GATED
+    mlp_activation_field: str = "act_fn"
     mlp_gate_proj_field: str = "gate_proj"  # Only used if mlp_implementation is "gated"
     mlp_up_proj_field: str = "up_proj"
     mlp_down_proj_field: str = "down_proj"

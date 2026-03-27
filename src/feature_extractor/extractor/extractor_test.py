@@ -23,6 +23,8 @@ def _create_feature_config():
             "attn.layer_00.value",
             "attn.layer_00.attn_weights",
             "attn.layer_01.output",
+            "mlp.layer_00.activation",
+            "mlp.layer_01.output",
         ],
         output_dir="outputs/test_features",
         save_format="pt",
@@ -58,10 +60,16 @@ def test_feature_extractor(model_name):
     assert extractor.model is not None
     assert extractor.tokenizer is not None
     assert extractor.attn_hook is not None
+    assert extractor.mlp_hook is not None
     assert extractor.attn_hook.attn_weights_outputs_combined_layer_indices == [0, 1]
     assert extractor.attn_hook.attn_weights_layer_indices == [0]
     assert extractor.attn_hook.output_layer_indices == [1]
     assert len(extractor.attn_hook.attn_module_hooks) == 2
+    assert extractor.mlp_hook.activation_output_combined_layer_indices == [0, 1]
+    assert extractor.mlp_hook.activation_layer_indices == [0]
+    assert extractor.mlp_hook.output_layer_indices == [1]
+    assert len(extractor.mlp_hook.activation_hooks) == 1
+    assert len(extractor.mlp_hook.output_hooks) == 1
 
     dataset = _create_dataset()
     collator = create_collator(extractor.tokenizer)
@@ -143,3 +151,18 @@ def test_feature_extractor(model_name):
         )  # (batch_size, seq_len, hidden_dim)
         assert hook_result.attn[1].output.shape[0] == 2
         assert hook_result.attn[1].output.shape[2] == hidden_size
+
+        # mlp output
+        assert hook_result.mlp[0] is not None
+        assert hook_result.mlp[1] is not None
+
+        assert hook_result.mlp[0].activation is not None
+        assert hook_result.mlp[1].activation is None
+        assert len(hook_result.mlp[0].activation.shape) == 3
+        assert hook_result.mlp[0].activation.shape[0] == 2
+
+        assert hook_result.mlp[0].output is None
+        assert hook_result.mlp[1].output is not None
+        assert len(hook_result.mlp[1].output.shape) == 3
+        assert hook_result.mlp[1].output.shape[0] == 2
+        assert hook_result.mlp[1].output.shape[2] == hidden_size

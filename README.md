@@ -27,6 +27,8 @@
 - `attn.layer_<index>.value`
 - `attn.layer_<index>.attn_weights`
 - `attn.layer_<index>.output`
+- `mlp.layer_<index>.activation`
+- `mlp.layer_<index>.output`
 
 ## 新しいモデルアーキテクチャの追加手順
 
