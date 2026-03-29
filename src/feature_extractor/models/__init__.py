@@ -13,12 +13,16 @@ from feature_extractor.logger import init_logging
 
 from .architecture import BaseModelArchitecture, get_num_layers
 from .gpt2 import GPT2Architecture
+from .gemma import GemmaArchitecture
+from .gpt_neox import GPTNeoXArchitecture
 from .llama import LlamaArchitecture
 
 SUPPORTED_MODELS = [
     "openai-community/gpt2",
     # "meta-llama/Llama-2-7b-hf",
     "meta-llama/Llama-3.2-1B",
+    "google/gemma-3-1b-it",
+    "EleutherAI/pythia-14m",
 ]
 
 __all__ = [
@@ -49,6 +53,15 @@ ARCHITECTURE_REGISTRY: tuple[ArchitectureRegistryEntry, ...] = (
     ArchitectureRegistryEntry(
         matcher=lambda class_name: "GPT2LMHeadModel" in class_name,
         factory=GPT2Architecture,
+    ),
+    ArchitectureRegistryEntry(
+        matcher=lambda class_name: "Gemma3ForCausalLM" in class_name
+        or "GemmaForCausalLM" in class_name,
+        factory=GemmaArchitecture,
+    ),
+    ArchitectureRegistryEntry(
+        matcher=lambda class_name: "GPTNeoXForCausalLM" in class_name,
+        factory=GPTNeoXArchitecture,
     ),
 )
 

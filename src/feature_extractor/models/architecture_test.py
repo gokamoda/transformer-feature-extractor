@@ -37,9 +37,22 @@ def test_supported_models_satisfy_architecture_contracts(model_name):
             architecture.attn_qkv_implementation
             == QKV_IMPLEMENTATION_INDEPENDENT_LINEAR
         )
+    elif "google/gemma" in model_name:
+        assert architecture.__class__.__name__ == "GemmaArchitecture", (
+            f"Expected GemmaArchitecture for model {model_name}, got {architecture.__class__.__name__}"
+        )
+        assert (
+            architecture.attn_qkv_implementation
+            == QKV_IMPLEMENTATION_INDEPENDENT_LINEAR
+        )
     elif "gpt2" in model_name:
         assert architecture.__class__.__name__ == "GPT2Architecture", (
             f"Expected GPT2Architecture for model {model_name}, got {architecture.__class__.__name__}"
+        )
+        assert architecture.attn_qkv_implementation == QKV_IMPLEMENTATION_CONV1D
+    elif "EleutherAI/pythia" in model_name:
+        assert architecture.__class__.__name__ == "GPTNeoXArchitecture", (
+            f"Expected GPTNeoXArchitecture for model {model_name}, got {architecture.__class__.__name__}"
         )
         assert architecture.attn_qkv_implementation == QKV_IMPLEMENTATION_CONV1D
 
