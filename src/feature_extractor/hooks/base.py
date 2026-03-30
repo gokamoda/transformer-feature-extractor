@@ -26,6 +26,12 @@ class AbstractResult:
     def __init__(self, **kwargs):
         # Get the field names from the dataclass
         field_names = {f.name for f in fields(self.__class__)}
+
+        # Initialize all declared fields to None so optional hook values can be
+        # accessed safely even when not present in a specific forward call.
+        for field_name in field_names:
+            setattr(self, field_name, None)
+
         for key, value in kwargs.items():
             if key in field_names:
                 setattr(self, key, value)

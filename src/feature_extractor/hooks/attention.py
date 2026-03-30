@@ -314,6 +314,7 @@ class AttentionHookManager:
                     module=attn_module,
                     to_cpu=True,
                     with_args=self.model_architecture.attn_pos_args,
+                    with_kwargs=True,
                     with_output=[
                         "output",
                         "attn_weights",
