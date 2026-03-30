@@ -2,6 +2,7 @@ import pytest
 import torch
 
 from feature_extractor.extractor.extractor_test import _create_feature_config
+from feature_extractor.configs.schema import FeatureConfig
 from feature_extractor.hooks.attention import AttentionHookManager
 from feature_extractor.models import (
     SUPPORTED_MODELS,
@@ -144,3 +145,47 @@ def test_attn_hook(model_name):
             assert hook.result.output.shape[2] == hidden_size * 3, (
                 f"Expected hidden size {hidden_size * 3} (hidden size * 3), got {hook.result.output.shape[2]}"
             )
+
+
+@pytest.mark.parametrize("model_name", ["meta-llama/Llama-3.2-1B"])
+def test_attn_hook_position_embeddings_and_reconstruction(model_name):
+    model = load_causal_model(model_name)
+    architecture = get_model_architecture(model)
+    feature_config = FeatureConfig(
+        feature_names=[
+            "attn.layer_00.query",
+            "attn.layer_00.key",
+            "attn.layer_00.attn_weights",
+            "attn.layer_00.position_embeddings",
+            "attn.layer_00.attention_mask",
+        ]
+    )
+
+    hook_manager = AttentionHookManager(
+        model=model, architecture=architecture, feature_cfg=feature_config
+    )
+
+    tokenizer = load_tokenizer(model_name)
+    inputs = tokenizer("Hello, world!", return_tensors="pt")
+    model.set_attn_implementation("eager")
+    with torch.no_grad():
+        model(
+            **inputs,
+            return_dict_in_generate=True,
+            output_hidden_states=True,
+            output_attentions=True,
+        )
+
+    features = hook_manager.get_features(num_layers=model.config.num_hidden_layers)
+    layer0 = features[0]
+    assert layer0 is not None
+    assert layer0.position_embeddings is not None
+    assert layer0.attention_mask is not None
+    assert layer0.attn_weights is not None
+    assert layer0.query is not None
+    assert layer0.key is not None
+    assert torch.allclose(
+        layer0.attn_weights.sum(dim=-1),
+        torch.ones_like(layer0.attn_weights.sum(dim=-1)),
+        atol=1e-4,
+    ), "Expected reconstructed attention weights to be normalized."

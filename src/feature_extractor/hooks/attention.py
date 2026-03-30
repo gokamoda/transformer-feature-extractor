@@ -1,7 +1,9 @@
 from dataclasses import dataclass
+from math import sqrt
 
+import torch
 from transformers import PreTrainedConfig, PreTrainedModel
-from transformers.models.llama.modeling_llama import repeat_kv
+from transformers.models.llama.modeling_llama import apply_rotary_pos_emb, repeat_kv
 
 from feature_extractor.configs import FeatureConfig
 from feature_extractor.hooks.base import Hook
@@ -176,6 +178,10 @@ class AttentionHookManager:
             + self.key_layer_indices
             + self.value_layer_indices
             + self.qkv_combined_layer_indices
+            + self.attn_weights_layer_indices
+            + self.position_embeddings_layer_indices
+            + self.attention_mask_layer_indices
+            + self.output_layer_indices
         ):
             if layer_index < 0 or layer_index >= num_layers:
                 raise ValueError(
@@ -364,6 +370,18 @@ class AttentionHookManager:
                 self._get_features_attn_module(num_layers)
             )
 
+        for layer_index in self.attn_weights_layer_indices:
+            if (
+                query_features[layer_index] is not None
+                and key_features[layer_index] is not None
+            ):
+                attn_weights_features[layer_index] = self._reconstruct_attn_weights(
+                    query=query_features[layer_index],
+                    key=key_features[layer_index],
+                    attention_mask=attention_mask_features[layer_index],
+                    position_embeddings=position_embeddings_features[layer_index],
+                )
+
         for query, key, value, attn_weights, position_embeddings, attention_mask, output in zip(
             query_features,
             key_features,
@@ -397,6 +415,38 @@ class AttentionHookManager:
                 )
 
         return features
+
+    def _reconstruct_attn_weights(
+        self,
+        query: Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM],
+        key: Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM],
+        attention_mask: Tensor | None,
+        position_embeddings: Tensor | tuple[Tensor, ...] | None,
+    ) -> Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE]:
+        if (
+            self.model_architecture.attn_qkv_implementation
+            == QKV_IMPLEMENTATION_INDEPENDENT_LINEAR
+            and isinstance(position_embeddings, tuple)
+            and len(position_embeddings) >= 2
+        ):
+            cos, sin = position_embeddings[0], position_embeddings[1]
+            query, key = apply_rotary_pos_emb(query, key, cos, sin)
+
+        attn_logits = torch.matmul(query, key.transpose(-2, -1)) / sqrt(query.shape[-1])
+
+        if self.model_architecture.attn_qkv_implementation == QKV_IMPLEMENTATION_CONV1D:
+            q_len = query.shape[-2]
+            k_len = key.shape[-2]
+            causal_mask = torch.tril(
+                torch.ones((q_len, k_len), device=attn_logits.device, dtype=torch.bool)
+            ).view(1, 1, q_len, k_len)
+            min_value = torch.finfo(attn_logits.dtype).min
+            attn_logits = attn_logits.masked_fill(~causal_mask, min_value)
+
+        if attention_mask is not None:
+            attn_logits = attn_logits + attention_mask
+
+        return torch.softmax(attn_logits.float(), dim=-1).to(query.dtype)
 
     def _get_features_qkv_independent(
         self, num_layers: int
