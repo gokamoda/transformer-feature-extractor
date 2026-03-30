@@ -129,11 +129,11 @@ class Hook:
 
         # Add positional arguments to the hook result
         if self.positional_args_keys:
-            assert len(self.positional_args_keys) == len(args), (
-                f"Positional args length {len(args)} does not match expected "
+            assert len(args) <= len(self.positional_args_keys), (
+                f"Positional args length {len(args)} exceeds expected "
                 f"length {len(self.positional_args_keys)}."
             )
-            for k, v in zip(self.positional_args_keys, args):
+            for k, v in zip(self.positional_args_keys[: len(args)], args):
                 assert k not in kwargs, f"Key {k} already exists in kwargs."
                 hook_result[k] = (
                     v.cpu().clone()

@@ -40,6 +40,8 @@ class LinearProjectionHook(Hook):
 
 @dataclass(repr=False, init=False)
 class AttnModuleObservationResult(AbstractBatchResult):
+    position_embeddings: Tensor | tuple[Tensor, ...] | None
+    attention_mask: Tensor
     output: Tensor[BATCH, SEQUENCE, HIDDEN_DIM]
     attn_weights: Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE]
 
@@ -57,6 +59,8 @@ class AttentionHookResult:
     key: None | Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM]  # gqa unfurled
     value: None | Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM]  # gqa unfurled
     attn_weights: None | Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE]
+    position_embeddings: None | Tensor | tuple[Tensor, ...]
+    attention_mask: None | Tensor
     output: None | Tensor[BATCH, SEQUENCE, HIDDEN_DIM]
 
 
@@ -66,6 +70,8 @@ class AttentionHookManager:
     value_layer_indices: list[int]
     qkv_combined_layer_indices: list[int]
     attn_weights_layer_indices: list[int]
+    position_embeddings_layer_indices: list[int]
+    attention_mask_layer_indices: list[int]
     output_layer_indices: list[int]
     attn_weights_outputs_combined_layer_indices: list[int]
     query_hooks: list[LinearProjectionHook]
@@ -101,6 +107,8 @@ class AttentionHookManager:
         self.attn_module_hooks = []
         self.output_layer_indices = []
         self.attn_weights_layer_indices = []
+        self.position_embeddings_layer_indices = []
+        self.attention_mask_layer_indices = []
         self.attn_weights_outputs_combined_layer_indices = []
 
     def _resolve_layer_index(self, feature_cfg: FeatureConfig) -> list[int]:
@@ -119,6 +127,10 @@ class AttentionHookManager:
                             self.value_layer_indices.append(layer_index)
                         elif parts[2] == "attn_weights":
                             self.attn_weights_layer_indices.append(layer_index)
+                        elif parts[2] == "position_embeddings":
+                            self.position_embeddings_layer_indices.append(layer_index)
+                        elif parts[2] == "attention_mask":
+                            self.attention_mask_layer_indices.append(layer_index)
                         elif parts[2] == "output":
                             self.output_layer_indices.append(layer_index)
                         else:
@@ -140,10 +152,15 @@ class AttentionHookManager:
 
         if (
             len(self.attn_weights_layer_indices) > 0
+            or len(self.position_embeddings_layer_indices) > 0
+            or len(self.attention_mask_layer_indices) > 0
             or len(self.output_layer_indices) > 0
         ):
             attn_weights_outputs_combined_layer_indices = list(
-                set(self.attn_weights_layer_indices) | set(self.output_layer_indices)
+                set(self.attn_weights_layer_indices)
+                | set(self.position_embeddings_layer_indices)
+                | set(self.attention_mask_layer_indices)
+                | set(self.output_layer_indices)
             )
             attn_weights_outputs_combined_layer_indices.sort()
             self.attn_weights_outputs_combined_layer_indices = (
@@ -290,6 +307,7 @@ class AttentionHookManager:
                 AttentionHook(
                     module=attn_module,
                     to_cpu=True,
+                    with_args=self.model_architecture.attn_pos_args,
                     with_output=[
                         "output",
                         "attn_weights",
@@ -311,6 +329,10 @@ class AttentionHookManager:
         attn_weights_features: list[Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE] | None] = [
             None
         ] * num_layers
+        position_embeddings_features: list[Tensor | tuple[Tensor, ...] | None] = [
+            None
+        ] * num_layers
+        attention_mask_features: list[Tensor | None] = [None] * num_layers
         attn_output_features: list[Tensor[BATCH, SEQUENCE, HIDDEN_DIM] | None] = [
             None
         ] * num_layers
@@ -333,15 +355,22 @@ class AttentionHookManager:
                 )
 
         if len(self.attn_weights_outputs_combined_layer_indices) > 0:
-            attn_weights_features, attn_output_features = (
+            (
+                attn_weights_features,
+                position_embeddings_features,
+                attention_mask_features,
+                attn_output_features,
+            ) = (
                 self._get_features_attn_module(num_layers)
             )
 
-        for query, key, value, attn_weights, output in zip(
+        for query, key, value, attn_weights, position_embeddings, attention_mask, output in zip(
             query_features,
             key_features,
             value_features,
             attn_weights_features,
+            position_embeddings_features,
+            attention_mask_features,
             attn_output_features,
         ):
             if (
@@ -349,6 +378,8 @@ class AttentionHookManager:
                 and key is None
                 and value is None
                 and attn_weights is None
+                and position_embeddings is None
+                and attention_mask is None
                 and output is None
             ):
                 features.append(None)
@@ -359,6 +390,8 @@ class AttentionHookManager:
                         key=key,
                         value=value,
                         attn_weights=attn_weights,
+                        position_embeddings=position_embeddings,
+                        attention_mask=attention_mask,
                         output=output,
                     )
                 )
@@ -488,9 +521,13 @@ class AttentionHookManager:
         self, num_layers: int
     ) -> tuple[
         list[Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE] | None],
+        list[Tensor | tuple[Tensor, ...] | None],
+        list[Tensor | None],
         list[Tensor[BATCH, SEQUENCE, HIDDEN_DIM] | None],
     ]:
         attn_weights_features = [None] * num_layers
+        position_embeddings_features = [None] * num_layers
+        attention_mask_features = [None] * num_layers
         attn_output_features = [None] * num_layers
 
         for layer_index, hook in zip(
@@ -499,10 +536,21 @@ class AttentionHookManager:
         ):
             if layer_index in self.attn_weights_layer_indices:
                 attn_weights_features[layer_index] = hook.result.attn_weights
+            if layer_index in self.position_embeddings_layer_indices:
+                position_embeddings_features[layer_index] = (
+                    hook.result.position_embeddings
+                )
+            if layer_index in self.attention_mask_layer_indices:
+                attention_mask_features[layer_index] = hook.result.attention_mask
             if layer_index in self.output_layer_indices:
                 attn_output_features[layer_index] = hook.result.output
 
-        return attn_weights_features, attn_output_features
+        return (
+            attn_weights_features,
+            position_embeddings_features,
+            attention_mask_features,
+            attn_output_features,
+        )
 
     def need_eager_attn(self) -> bool:
         return len(self.attn_weights_outputs_combined_layer_indices) > 0
