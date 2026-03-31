@@ -21,9 +21,9 @@ def _reshape_rope_embeddings(
     query: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     cos_dim = cos.dim()
-    unsqueeze_plan = {2: (0, 0), 3: (1,)}
-    if cos_dim in unsqueeze_plan:
-        for dim in unsqueeze_plan[cos_dim]:
+    unsqueeze_dims_by_rank = {2: (0, 0), 3: (1,)}
+    if cos_dim in unsqueeze_dims_by_rank:
+        for dim in unsqueeze_dims_by_rank[cos_dim]:
             cos = cos.unsqueeze(dim)
             sin = sin.unsqueeze(dim)
     elif cos_dim != 4:
