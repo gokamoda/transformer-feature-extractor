@@ -1,5 +1,6 @@
 import contextlib
 from dataclasses import dataclass, fields, make_dataclass
+from typing import Any
 
 import torch
 from torch import nn
@@ -87,14 +88,14 @@ class Hook:
     to_cpu: bool
     positional_args_keys: list[str] | None
     output_keys: list[str] | None
-    with_kwargs: bool
+    with_kwargs: bool | list[str]
 
     def __init__(
         self,
         module: nn.Module,
         to_cpu: bool = True,
         with_args: None | list[str] = None,
-        with_kwargs: bool = False,
+        with_kwargs: bool | list[str] = False,
         with_output: None | list[str] = None,
     ) -> None:
         # Register a forward hook
@@ -129,28 +130,24 @@ class Hook:
 
         # Add positional arguments to the hook result
         if self.positional_args_keys:
-            assert len(self.positional_args_keys) == len(args), (
-                f"Positional args length {len(args)} does not match expected "
-                f"length {len(self.positional_args_keys)}."
+            assert len(args) <= len(self.positional_args_keys), (
+                f"Positional args length {len(args)} exceeds expected "
+                f"maximum length {len(self.positional_args_keys)}."
             )
             for k, v in zip(self.positional_args_keys, args):
                 assert k not in kwargs, f"Key {k} already exists in kwargs."
-                hook_result[k] = (
-                    v.cpu().clone()
-                    if self.to_cpu and isinstance(v, torch.Tensor)
-                    else v
-                )
+                hook_result[k] = self._maybe_to_cpu_clone(v)
 
         # Add keyword arguments to the hook result
         if self.with_kwargs:
-            hook_result.update(
-                {
-                    k: v.cpu().clone()
-                    if self.to_cpu and isinstance(v, torch.Tensor)
-                    else v
-                    for k, v in kwargs.items()
-                }
-            )
+            if isinstance(self.with_kwargs, list):
+                kwargs_keys = self.with_kwargs
+            else:
+                kwargs_keys = list(kwargs.keys())
+
+            for key in kwargs_keys:
+                if key in kwargs:
+                    hook_result[key] = self._maybe_to_cpu_clone(kwargs[key])
 
         # Add output to the hook result
         if self.output_keys is not None:
@@ -161,22 +158,27 @@ class Hook:
                 )
                 for k, v in zip(self.output_keys, output):
                     assert k not in hook_result, f"Key {k} already exists in kwargs."
-                    hook_result[k] = (
-                        v.cpu().clone()
-                        if self.to_cpu and isinstance(v, torch.Tensor)
-                        else v
-                    )
+                    hook_result[k] = self._maybe_to_cpu_clone(v)
             else:
                 assert len(self.output_keys) == 1, (
                     f"Output keys length {len(self.output_keys)} does not match expected "
                     f"length 1 for single output."
                 )
-                hook_result[self.output_keys[0]] = (
-                    output.cpu().clone()
-                    if self.to_cpu and isinstance(output, torch.Tensor)
-                    else output
-                )
+                hook_result[self.output_keys[0]] = self._maybe_to_cpu_clone(output)
         self.save_result(hook_result)
+
+    def _maybe_to_cpu_clone(self, value: Any) -> Any:
+        if not self.to_cpu:
+            return value
+        if isinstance(value, torch.Tensor):
+            return value.cpu().clone()
+        if isinstance(value, tuple):
+            return tuple(self._maybe_to_cpu_clone(v) for v in value)
+        if isinstance(value, list):
+            return [self._maybe_to_cpu_clone(v) for v in value]
+        if isinstance(value, dict):
+            return {k: self._maybe_to_cpu_clone(v) for k, v in value.items()}
+        return value
 
     def save_result(self, hook_result: dict):
         raise NotImplementedError(

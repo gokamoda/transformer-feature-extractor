@@ -28,15 +28,15 @@ class GPT2Architecture(BaseModelArchitecture):
     attn_pos_args: list[str] = field(
         default_factory=lambda: [
             "hidden_states",
-            "layer_past",
+            "last_key_values",
             "attention_mask",
-            "head_mask",
             "encoder_hidden_states",
             "encoder_attention_mask",
-            "use_cache",
             "output_attentions",
         ]
     )
+    attn_position_embeddings_arg_name: str | None = None
+    attn_attention_mask_arg_name: str | None = "attention_mask"
     attn_return_fields: list[str] = field(
         default_factory=lambda: ["attn_output", "present", "attn_weights"]
     )

@@ -33,7 +33,7 @@ class FeatureConfig:
         patterns = [
             r"^embeddings$",
             r"^layers\.layer_\d+\.output$",
-            r"^attn\.layer_\d+\.(query|key|value|attn_weights|output)$",
+            r"^attn\.layer_\d+\.(query|key|value|attn_weights|output|attention_mask|positional_embedding)$",
             r"^mlp\.layer_\d+\.(activation|output)$",
         ]
 
