@@ -353,18 +353,23 @@ class QKVHookManager:
 class AttnModuleObservationResult(AbstractBatchResult):
     output: Tensor[BATCH, SEQUENCE, HIDDEN_DIM]
     attn_weights: Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE]
+    position_embeddings: tuple[Tensor, Tensor]
+    attention_mask: Tensor | tuple
 
 
 class AttentionHook(Hook):
     result: AttnModuleObservationResult
 
     def save_result(self, hook_result: dict):
+        print(hook_result.keys())
         self.result = AttnModuleObservationResult(**hook_result)
 
 
 class AttentionModuleHookManager:
     attn_weights_layer_indices: list[int]
     output_layer_indices: list[int]
+    attention_mask_layer_indices: list[int]
+    position_embeddings_layer_indices: list[int]
     layer_indices = list[int]
 
     attn_module_hooks: list[AttentionHook]
@@ -388,6 +393,8 @@ class AttentionModuleHookManager:
         self.output_layer_indices = []
         self.attn_weights_outputs_combined_layer_indices = []
         self.attn_module_hooks = []
+        self.attention_mask_layer_indices = []
+        self.position_embeddings_layer_indices = []
 
     def _resolve_layer_index(self, feature_cfg: FeatureConfig) -> None:
         for feature_name in feature_cfg.feature_names:
@@ -399,13 +406,22 @@ class AttentionModuleHookManager:
                         self.attn_weights_layer_indices.append(layer_index)
                     elif parts[2] == "output":
                         self.output_layer_indices.append(layer_index)
+                    elif parts[2] == "attention_mask":
+                        self.attention_mask_layer_indices.append(layer_index)
+                    elif parts[2] == "positional_embedding":
+                        self.position_embeddings_layer_indices.append(layer_index)
 
         if (
             len(self.attn_weights_layer_indices) > 0
             or len(self.output_layer_indices) > 0
+            or len(self.attention_mask_layer_indices) > 0
+            or len(self.position_embeddings_layer_indices) > 0
         ):
             combined_layer_indices = list(
-                set(self.attn_weights_layer_indices) | set(self.output_layer_indices)
+                set(self.attn_weights_layer_indices)
+                | set(self.output_layer_indices)
+                | set(self.attention_mask_layer_indices)
+                | set(self.position_embeddings_layer_indices)
             )
             combined_layer_indices.sort()
             self.layer_indices = combined_layer_indices
@@ -413,7 +429,8 @@ class AttentionModuleHookManager:
         else:
             self.layer_indices = []
             raise ValueError(
-                "Something is wrong. check need_attn_module_hook function. No valid attention module hook layer index found."
+                "Something is wrong. check need_attn_module_hook function."
+                "No valid attention module hook layer index found."
             )
 
     def check_layer_index_in_range(self, model: PreTrainedModel):
@@ -441,10 +458,28 @@ class AttentionModuleHookManager:
             attn_module = getattr(
                 layers_module[layer_index], self.model_architecture.attn_field
             )
+
+            hook_kwargs = []
+            if layer_index in self.attention_mask_layer_indices:
+                if self.model_architecture.attn_attention_mask_arg_name is not None:
+                    hook_kwargs.append(
+                        self.model_architecture.attn_attention_mask_arg_name
+                    )
+            if layer_index in self.position_embeddings_layer_indices:
+                if (
+                    self.model_architecture.attn_position_embeddings_arg_name
+                    is not None
+                ):
+                    hook_kwargs.append(
+                        self.model_architecture.attn_position_embeddings_arg_name
+                    )
+
             self.attn_module_hooks.append(
                 AttentionHook(
                     module=attn_module,
                     to_cpu=True,
+                    with_args=self.model_architecture.attn_pos_args,
+                    with_kwargs=hook_kwargs,
                     with_output=[
                         "output",
                         "attn_weights",
@@ -457,10 +492,14 @@ class AttentionModuleHookManager:
     ) -> tuple[
         list[Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE] | None],
         list[Tensor[BATCH, SEQUENCE, HIDDEN_DIM] | None],
+        list[Tensor | tuple | None],
+        list[Tensor | None],
     ]:
         num_layers = get_num_layers(self.model_config, self.model_architecture)
         attn_weights_features = [None] * num_layers
         attn_output_features = [None] * num_layers
+        attention_mask_features = [None] * num_layers
+        position_embedding_features = [None] * num_layers
 
         assert isinstance(self.layer_indices, list), (
             "Expected layer_indices to be a list"
@@ -470,8 +509,19 @@ class AttentionModuleHookManager:
                 attn_weights_features[layer_index] = hook.result.attn_weights
             if layer_index in self.output_layer_indices:
                 attn_output_features[layer_index] = hook.result.output
+            if layer_index in self.attention_mask_layer_indices:
+                attention_mask_features[layer_index] = hook.result.attention_mask
+            if layer_index in self.position_embeddings_layer_indices and self.model_architecture.attn_position_embeddings_arg_name is not None:
+                position_embedding_features[layer_index] = (
+                    hook.result.position_embeddings
+                )
 
-        return attn_weights_features, attn_output_features
+        return (
+            attn_weights_features,
+            attn_output_features,
+            attention_mask_features,
+            position_embedding_features,
+        )
 
     @staticmethod
     def need_attn_module_hook(feature_cfg: FeatureConfig) -> bool:
@@ -479,7 +529,12 @@ class AttentionModuleHookManager:
             if feature_name.startswith("attn."):
                 parts = feature_name.split(".")
                 if len(parts) == 3 and parts[1].startswith("layer_"):
-                    if parts[2] in ["attn_weights", "output"]:
+                    if parts[2] in [
+                        "attn_weights",
+                        "output",
+                        "attention_mask",
+                        "positional_embedding",
+                    ]:
                         return True
         return False
 
@@ -496,6 +551,8 @@ class AttentionHookResult:
     value: None | Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM]  # gqa unfurled
     attn_weights: None | Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE]
     output: None | Tensor[BATCH, SEQUENCE, HIDDEN_DIM]
+    position_embeddings: None | Tensor[BATCH, SEQUENCE, HIDDEN_DIM]
+    attention_mask: None | Tensor | tuple
 
 
 class AttentionHookManager:
@@ -508,6 +565,7 @@ class AttentionHookManager:
         architecture: BaseModelArchitecture,
         feature_cfg: FeatureConfig,
     ):
+        self.check_feature_cfg(feature_cfg)
         if QKVHookManager.need_qkv_hook(feature_cfg):
             self.qkv_hook_manager = QKVHookManager(
                 model=model, architecture=architecture, feature_cfg=feature_cfg
@@ -521,6 +579,32 @@ class AttentionHookManager:
             )
         else:
             self.attn_module_hook_manager = None
+
+    def check_feature_cfg(self, feature_cfg: FeatureConfig):
+        for feature_name in feature_cfg.feature_names:
+            if feature_name.startswith("attn."):
+                parts = feature_name.split(".")
+                assert len(parts) == 3, (
+                    f"Invalid feature name {feature_name} for attention hook."
+                    f"Expected format: attn.layer_{{layer_index}}.feature"
+                )
+                assert parts[1].startswith("layer_"), (
+                    f"Invalid feature name {feature_name} for attention hook."
+                    f"Expected format: attn.layer_{{layer_index}}.feature"
+                )
+                assert parts[2] in [
+                    "query",
+                    "key",
+                    "value",
+                    "attn_weights",
+                    "output",
+                    "attention_mask",
+                    "positional_embedding",
+                ], (
+                    f"Invalid feature name {feature_name} for attention hook."
+                    f"Expected feature to be one of query, key, value, attn_weights,"
+                    f"output, attention_mask, positional_embedding"
+                )
 
     @staticmethod
     def need_attn_hook(feature_cfg: FeatureConfig) -> bool:
@@ -543,21 +627,41 @@ class AttentionHookManager:
             )
 
         if self.attn_module_hook_manager is not None:
-            attn_weights_features, attn_output_features = (
-                self.attn_module_hook_manager.get_features()
-            )
+            (
+                attn_weights_features,
+                attn_output_features,
+                attention_mask_features,
+                position_embedding_features,
+            ) = self.attn_module_hook_manager.get_features()
         else:
-            attn_weights_features, attn_output_features = (
+            (
+                attn_weights_features,
+                attn_output_features,
+                attention_mask_features,
+                position_embedding_features,
+            ) = (
+                [None] * num_layers,
+                [None] * num_layers,
                 [None] * num_layers,
                 [None] * num_layers,
             )
 
-        for query, key, value, attn_weights, output in zip(
+        for (
+            query,
+            key,
+            value,
+            attn_weights,
+            output,
+            attention_mask,
+            position_embedding,
+        ) in zip(
             query_features,
             key_features,
             value_features,
             attn_weights_features,
             attn_output_features,
+            attention_mask_features,
+            position_embedding_features,
         ):
             if (
                 query is None
@@ -565,6 +669,8 @@ class AttentionHookManager:
                 and value is None
                 and attn_weights is None
                 and output is None
+                and attention_mask is None
+                and position_embedding is None
             ):
                 features.append(None)
             else:
@@ -575,6 +681,8 @@ class AttentionHookManager:
                         value=value,
                         attn_weights=attn_weights,
                         output=output,
+                        attention_mask=attention_mask,
+                        position_embeddings=position_embedding,
                     )
                 )
 

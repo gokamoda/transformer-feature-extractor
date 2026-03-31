@@ -22,6 +22,8 @@ def _create_feature_config():
             "attn.layer_00.value",
             "attn.layer_00.attn_weights",
             "attn.layer_01.output",
+            "attn.layer_00.attention_mask",
+            "attn.layer_00.positional_embedding",
             "mlp.layer_00.activation",
             "mlp.layer_01.output",
         ],
@@ -67,6 +69,13 @@ def test_feature_extractor(model_name):
         0
     ]
     assert extractor.attn_hook.attn_module_hook_manager.output_layer_indices == [1]
+    assert (
+        extractor.attn_hook.attn_module_hook_manager.attention_mask_layer_indices == [0]
+    )
+    assert (
+        extractor.attn_hook.attn_module_hook_manager.position_embeddings_layer_indices
+        == [0]
+    )
     assert len(extractor.attn_hook.attn_module_hook_manager.attn_module_hooks) == 2
     assert extractor.mlp_hook.activation_output_combined_layer_indices == [0, 1]
     assert extractor.mlp_hook.activation_layer_indices == [0]
@@ -145,6 +154,15 @@ def test_feature_extractor(model_name):
             hook_result.attn[0].attn_weights.shape[2]
             == hook_result.attn[0].attn_weights.shape[3]
         )  # seq_len
+
+        # attention module inputs
+        assert hook_result.attn[0].attention_mask is not None
+        assert hook_result.attn[1].attention_mask is None
+        assert hook_result.attn[0].attention_mask.shape[0] == 2
+
+        if extractor.architecture.attn_position_embeddings_arg_name is not None:
+            assert hook_result.attn[0].position_embeddings is not None
+            assert hook_result.attn[1].position_embeddings is None
 
         # attention output
         assert hook_result.attn[0].output is None
