@@ -20,15 +20,15 @@ def _reshape_rope_embeddings(
     sin: torch.Tensor,
     query: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    if cos.dim() == 2:
-        cos = cos.unsqueeze(0).unsqueeze(0)
-        sin = sin.unsqueeze(0).unsqueeze(0)
-    elif cos.dim() == 3:
-        cos = cos.unsqueeze(1)
-        sin = sin.unsqueeze(1)
-    elif cos.dim() != 4:
+    cos_dim = cos.dim()
+    unsqueeze_plan = {2: (0, 0), 3: (1,)}
+    if cos_dim in unsqueeze_plan:
+        for dim in unsqueeze_plan[cos_dim]:
+            cos = cos.unsqueeze(dim)
+            sin = sin.unsqueeze(dim)
+    elif cos_dim != 4:
         raise ValueError(
-            f"Unexpected RoPE embedding rank {cos.dim()}, expected 2-4."
+            f"Unexpected RoPE embedding rank {cos_dim}, expected 2-4."
         )
 
     head_dim = query.shape[-1]

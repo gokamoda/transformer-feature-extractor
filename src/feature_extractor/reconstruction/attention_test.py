@@ -47,7 +47,8 @@ def test_reconstruct_attention_weights(model_name):
         collate_fn=collator,
     )
 
-    for _, hook_result in extractor.extract_features(dataloader):
+    for batch, hook_result in extractor.extract_features(dataloader):
+        assert "input_ids" in batch
         attn_result = hook_result.attn[0]
         assert attn_result is not None
         assert attn_result.query is not None
