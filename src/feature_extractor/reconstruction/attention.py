@@ -5,7 +5,7 @@ import torch
 from feature_extractor.models import BaseModelArchitecture
 from feature_extractor.typing import BATCH, HEAD, HEAD_DIM, SEQUENCE, Tensor
 
-GPT2_MASK_VALUE = -10000.0
+GPT2_MASKED_BIAS = -10000.0
 
 
 def _rotate_half(values: torch.Tensor) -> torch.Tensor:
@@ -28,7 +28,8 @@ def _reshape_rope_embeddings(
             sin = sin.unsqueeze(dim)
     elif cos_dim != 4:
         raise ValueError(
-            f"Unexpected RoPE embedding rank {cos_dim}, expected 2-4."
+            "RoPE embeddings must have 2-4 dimensions, got "
+            f"{cos_dim}. Ensure position_embeddings are properly formatted."
         )
 
     head_dim = query.shape[-1]
@@ -84,7 +85,7 @@ def reconstruct_attention_weights(
     if architecture.attn_position_embeddings_arg_name is not None:
         mask_value = float(torch.finfo(attn_scores.dtype).min)
     else:
-        mask_value = GPT2_MASK_VALUE
+        mask_value = GPT2_MASKED_BIAS
 
     if attention_mask is not None:
         attn_scores = attn_scores + attention_mask
