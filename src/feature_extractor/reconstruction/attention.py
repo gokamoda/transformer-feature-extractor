@@ -78,10 +78,8 @@ def reconstruct_attention_weights(
     attn_scores = _apply_causal_mask(attn_scores, mask_value)
 
     if architecture.attn_position_embeddings_arg_name is not None:
-        attn_weights = torch.softmax(attn_scores, dim=-1, dtype=torch.float32).to(
-            query.dtype
-        )
+        attn_weights = torch.softmax(attn_scores, dim=-1, dtype=torch.float32)
     else:
         attn_weights = torch.softmax(attn_scores, dim=-1)
 
-    return attn_weights
+    return attn_weights.to(query.dtype)
