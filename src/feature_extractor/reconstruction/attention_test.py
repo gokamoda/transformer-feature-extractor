@@ -73,7 +73,10 @@ def test_attention_reconstruction_requires_rope_embeddings():
     architecture = LlamaArchitecture()
     query = torch.zeros(1, 1, 2, 4)
     key = torch.zeros(1, 1, 2, 4)
-    with pytest.raises(ValueError, match="position embeddings"):
+    with pytest.raises(
+        ValueError,
+        match="RoPE-based architectures require position embeddings.",
+    ):
         reconstruct_attention_weights(
             query=query,
             key=key,
