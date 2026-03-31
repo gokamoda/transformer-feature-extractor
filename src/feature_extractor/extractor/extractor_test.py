@@ -16,7 +16,6 @@ from feature_extractor.models.architecture import (
 def _create_feature_config():
     return FeatureConfig(
         feature_names=[
-            "embeddings",
             "layers.layer_00.output",
             "attn.layer_00.query",
             "attn.layer_01.key",

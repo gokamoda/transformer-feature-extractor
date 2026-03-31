@@ -196,3 +196,16 @@ class Hook:
         finally:
             for hook in hooks:
                 hook.remove()
+
+
+class HookManager:
+    """Base class for hook managers."""
+
+    def __init__(self):
+        self.hooks: list[Hook] = []
+
+    def remove_hooks(self):
+        """Remove all hooks."""
+        for hook in self.hooks:
+            hook.remove()
+        self.hooks = []
