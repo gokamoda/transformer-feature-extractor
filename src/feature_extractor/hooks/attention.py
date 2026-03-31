@@ -361,7 +361,6 @@ class AttentionHook(Hook):
     result: AttnModuleObservationResult
 
     def save_result(self, hook_result: dict):
-        print(hook_result.keys())
         self.result = AttnModuleObservationResult(**hook_result)
 
 
