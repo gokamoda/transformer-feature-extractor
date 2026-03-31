@@ -21,15 +21,17 @@ def _reshape_rope_embeddings(
     query: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     cos_dim = cos.dim()
-    dimension_expansion_map = {2: (0, 0), 3: (1,)}
-    if cos_dim in dimension_expansion_map:
-        for dim in dimension_expansion_map[cos_dim]:
-            cos = cos.unsqueeze(dim)
-            sin = sin.unsqueeze(dim)
+    if cos_dim == 2:
+        cos = cos[None, None, ...]
+        sin = sin[None, None, ...]
+    elif cos_dim == 3:
+        cos = cos[:, None, ...]
+        sin = sin[:, None, ...]
     elif cos_dim != 4:
         raise ValueError(
             "RoPE embeddings must have 2-4 dimensions, got "
-            f"{cos_dim}. Ensure position_embeddings are properly formatted."
+            f"{cos_dim}. Expected shapes like [seq_len, head_dim], "
+            "[batch, seq_len, head_dim], or [batch, heads, seq_len, head_dim]."
         )
 
     head_dim = query.shape[-1]
