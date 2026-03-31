@@ -35,6 +35,7 @@ class GPT2Architecture(BaseModelArchitecture):
             "output_attentions",
         ]
     )
+    attn_use_rope: bool = False
     attn_position_embeddings_arg_name: str | None = None
     attn_attention_mask_arg_name: str | None = "attention_mask"
     attn_return_fields: list[str] = field(
