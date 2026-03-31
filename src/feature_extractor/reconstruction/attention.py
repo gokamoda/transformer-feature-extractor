@@ -5,6 +5,8 @@ import torch
 from feature_extractor.models import BaseModelArchitecture
 from feature_extractor.typing import BATCH, HEAD, HEAD_DIM, SEQUENCE, Tensor
 
+GPT2_MASK_VALUE = -10000.0
+
 
 def _rotate_half(values: torch.Tensor) -> torch.Tensor:
     half = values.shape[-1] // 2
@@ -71,8 +73,16 @@ def reconstruct_attention_weights(
     RoPE-based models upcast softmax to float32 in the transformers implementation,
     so we mirror that behavior and cast back to the query dtype.
     """
-    if query is None or key is None:
-        raise ValueError("query and key must be provided to reconstruct attention.")
+    missing = []
+    if query is None:
+        missing.append("query")
+    if key is None:
+        missing.append("key")
+    if missing:
+        missing_fields = ", ".join(missing)
+        raise ValueError(
+            f"{missing_fields} must be provided to reconstruct attention."
+        )
 
     if architecture.attn_position_embeddings_arg_name is not None:
         if position_embeddings is None:
@@ -85,7 +95,7 @@ def reconstruct_attention_weights(
     if architecture.attn_position_embeddings_arg_name is not None:
         mask_value = float(torch.finfo(attn_scores.dtype).min)
     else:
-        mask_value = -10000.0
+        mask_value = GPT2_MASK_VALUE
 
     if attention_mask is not None:
         attn_scores = attn_scores + attention_mask
