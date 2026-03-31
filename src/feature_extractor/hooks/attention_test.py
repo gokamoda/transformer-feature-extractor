@@ -13,8 +13,8 @@ from feature_extractor.models.architecture import (
     QKV_IMPLEMENTATION_CONV1D,
     QKV_IMPLEMENTATION_INDEPENDENT_LINEAR,
     get_hidden_size,
-    get_kv_hidden_size,
     get_hidden_size_per_head,
+    get_kv_hidden_size,
     get_num_attn_heads,
 )
 
@@ -142,42 +142,6 @@ def test_attn_hook(model_name):
     ), "Expected attention_mask input to be captured"
 
     if architecture.attn_position_embeddings_arg_name is not None:
-        print(
-            hook_manager.attn_module_hook_manager.attn_module_hooks[
-                0
-            ].result.position_embeddings
-        )
-        print(
-            type(
-                hook_manager.attn_module_hook_manager.attn_module_hooks[
-                    0
-                ].result.position_embeddings
-            )
-        )
-        print(
-            len(
-                hook_manager.attn_module_hook_manager.attn_module_hooks[
-                    0
-                ].result.position_embeddings
-            )
-        )
-        print(
-            type(
-                hook_manager.attn_module_hook_manager.attn_module_hooks[
-                    0
-                ].result.position_embeddings[0]
-            )
-        )
-        print(
-            hook_manager.attn_module_hook_manager.attn_module_hooks[0]
-            .result.position_embeddings[0]
-            .shape
-        )
-        print(
-            hook_manager.attn_module_hook_manager.attn_module_hooks[0]
-            .result.position_embeddings[1]
-            .shape
-        )
         assert (
             hook_manager.attn_module_hook_manager.attn_module_hooks[
                 0
@@ -222,9 +186,24 @@ def test_attn_hook(model_name):
             .shape[2]
             == head_size
         ), (
-            f"Expected position_embeddings shape[2] to match head size {head_size}, got {hook_manager.attn_module_hook_manager.attn_module_hooks[0].result.position_embeddings[0].shape}"   
+            f"Expected position_embeddings shape[2] to match head size {head_size}, got {hook_manager.attn_module_hook_manager.attn_module_hooks[0].result.position_embeddings[0].shape}"
         )
 
+    # attention mask
+    sequence_length = hook_manager.attn_module_hook_manager.attn_module_hooks[
+        0
+    ].result.attn_weights.shape[2]
+    assert (
+        hook_manager.attn_module_hook_manager.attn_module_hooks[0].result.attention_mask
+        is not None
+    ), "Expected attention_mask input to be captured"
+    assert hook_manager.attn_module_hook_manager.attn_module_hooks[
+        0
+    ].result.attention_mask.shape == (1, 1, sequence_length, sequence_length), (
+        f"Expected attention_mask shape (batch, 1, seq_len, seq_len), got {hook_manager.attn_module_hook_manager.attn_module_hooks[0].result.attention_mask.shape}"
+    )
+
+    # check qkv hook results
     if architecture.attn_qkv_implementation == QKV_IMPLEMENTATION_INDEPENDENT_LINEAR:
         assert isinstance(
             hook_manager.qkv_hook_manager.query_hooks[0].result.output.shape, torch.Size
@@ -279,4 +258,3 @@ def test_attn_hook(model_name):
             assert hook.result.output.shape[2] == hidden_size * 3, (
                 f"Expected hidden size {hidden_size * 3} (hidden size * 3), got {hook.result.output.shape[2]}"
             )
-

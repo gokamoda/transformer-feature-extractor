@@ -354,7 +354,7 @@ class AttnModuleObservationResult(AbstractBatchResult):
     output: Tensor[BATCH, SEQUENCE, HIDDEN_DIM]
     attn_weights: Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE]
     position_embeddings: tuple[Tensor, Tensor]
-    attention_mask: Tensor | tuple
+    attention_mask: Tensor
 
 
 class AttentionHook(Hook):
@@ -511,7 +511,11 @@ class AttentionModuleHookManager:
                 attn_output_features[layer_index] = hook.result.output
             if layer_index in self.attention_mask_layer_indices:
                 attention_mask_features[layer_index] = hook.result.attention_mask
-            if layer_index in self.position_embeddings_layer_indices and self.model_architecture.attn_position_embeddings_arg_name is not None:
+            if (
+                layer_index in self.position_embeddings_layer_indices
+                and self.model_architecture.attn_position_embeddings_arg_name
+                is not None
+            ):
                 position_embedding_features[layer_index] = (
                     hook.result.position_embeddings
                 )
@@ -551,7 +555,7 @@ class AttentionHookResult:
     value: None | Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM]  # gqa unfurled
     attn_weights: None | Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE]
     output: None | Tensor[BATCH, SEQUENCE, HIDDEN_DIM]
-    position_embeddings: None | Tensor[BATCH, SEQUENCE, HIDDEN_DIM]
+    position_embeddings: None | tuple[Tensor, Tensor]
     attention_mask: None | Tensor | tuple
 
 
