@@ -5,7 +5,7 @@ import torch
 from feature_extractor.models import BaseModelArchitecture
 from feature_extractor.typing import BATCH, HEAD, HEAD_DIM, SEQUENCE, Tensor
 
-NON_ROPE_MASKED_BIAS = -10000.0  # Matches GPT-2 masked_bias in transformers.
+NON_ROPE_MASKED_BIAS = -10000.0  # Matches GPT-2 masked_bias in transformers.modeling_gpt2.
 
 
 def _rotate_half(values: torch.Tensor) -> torch.Tensor:
@@ -29,7 +29,7 @@ def _reshape_rope_embeddings(
         sin = sin[:, None, ...]
     elif cos_dim != 4:
         raise ValueError(
-            "RoPE embeddings must have 2-4 dimensions, got "
+            "RoPE embeddings must have 2, 3, or 4 dimensions, got "
             f"{cos_dim}. Expected shapes like [seq_len, head_dim], "
             "[batch, seq_len, head_dim], or [batch, heads, seq_len, head_dim]."
         )
