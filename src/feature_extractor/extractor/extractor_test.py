@@ -60,11 +60,15 @@ def test_feature_extractor(model_name):
     assert extractor.model is not None
     assert extractor.tokenizer is not None
     assert extractor.attn_hook is not None
+    assert extractor.attn_hook.qkv_hook_manager is not None
+    assert extractor.attn_hook.attn_module_hook_manager is not None
     assert extractor.mlp_hook is not None
-    assert extractor.attn_hook.attn_weights_outputs_combined_layer_indices == [0, 1]
-    assert extractor.attn_hook.attn_weights_layer_indices == [0]
-    assert extractor.attn_hook.output_layer_indices == [1]
-    assert len(extractor.attn_hook.attn_module_hooks) == 2
+    assert extractor.attn_hook.attn_module_hook_manager.layer_indices == [0, 1]
+    assert extractor.attn_hook.attn_module_hook_manager.attn_weights_layer_indices == [
+        0
+    ]
+    assert extractor.attn_hook.attn_module_hook_manager.output_layer_indices == [1]
+    assert len(extractor.attn_hook.attn_module_hook_manager.attn_module_hooks) == 2
     assert extractor.mlp_hook.activation_output_combined_layer_indices == [0, 1]
     assert extractor.mlp_hook.activation_layer_indices == [0]
     assert extractor.mlp_hook.output_layer_indices == [1]

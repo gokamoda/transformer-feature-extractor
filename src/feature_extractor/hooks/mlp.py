@@ -87,7 +87,9 @@ class MLPHookManager:
                         elif parts[2] == "output":
                             self.output_layer_indices.append(layer_index)
                         else:
-                            raise ValueError(f"Invalid MLP feature name: {feature_name}")
+                            raise ValueError(
+                                f"Invalid MLP feature name: {feature_name}"
+                            )
                     except ValueError as e:
                         raise ValueError(
                             f"Invalid layer index in feature name: {feature_name}"
@@ -119,7 +121,9 @@ class MLPHookManager:
             )
             self.activation_hooks.append(
                 MLPActivationHook(
-                    module=getattr(mlp_module, self.model_architecture.mlp_activation_field),
+                    module=getattr(
+                        mlp_module, self.model_architecture.mlp_activation_field
+                    ),
                     to_cpu=True,
                     with_output=["activation"],
                 )
@@ -152,7 +156,9 @@ class MLPHookManager:
             None
         ] * num_layers
 
-        for layer_index, hook in zip(self.activation_layer_indices, self.activation_hooks):
+        for layer_index, hook in zip(
+            self.activation_layer_indices, self.activation_hooks
+        ):
             activation_features[layer_index] = hook.result.activation
         for layer_index, hook in zip(self.output_layer_indices, self.output_hooks):
             output_features[layer_index] = hook.result.output
