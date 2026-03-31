@@ -21,9 +21,9 @@ def _reshape_rope_embeddings(
     query: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     cos_dim = cos.dim()
-    unsqueeze_dims_by_rank = {2: (0, 0), 3: (1,)}
-    if cos_dim in unsqueeze_dims_by_rank:
-        for dim in unsqueeze_dims_by_rank[cos_dim]:
+    unsqueeze_dims_by_cosine_rank = {2: (0, 0), 3: (1,)}
+    if cos_dim in unsqueeze_dims_by_cosine_rank:
+        for dim in unsqueeze_dims_by_cosine_rank[cos_dim]:
             cos = cos.unsqueeze(dim)
             sin = sin.unsqueeze(dim)
     elif cos_dim != 4:
@@ -74,7 +74,9 @@ def reconstruct_attention_weights(
     RoPE-based models upcast softmax to float32 in the transformers implementation,
     so we mirror that behavior and cast back to the query dtype.
     """
-    if architecture.attn_position_embeddings_arg_name is not None:
+    use_rope = architecture.attn_position_embeddings_arg_name is not None
+
+    if use_rope:
         if position_embeddings is None:
             raise ValueError("RoPE-based architectures require position embeddings.")
         query, key = _apply_rope(query, key, position_embeddings)
@@ -82,7 +84,7 @@ def reconstruct_attention_weights(
     attn_scores = torch.matmul(query, key.transpose(-1, -2))
     attn_scores = attn_scores / math.sqrt(query.shape[-1])
 
-    if architecture.attn_position_embeddings_arg_name is not None:
+    if use_rope:
         mask_value = float(torch.finfo(attn_scores.dtype).min)
     else:
         mask_value = GPT2_MASKED_BIAS
@@ -92,7 +94,7 @@ def reconstruct_attention_weights(
 
     attn_scores = _apply_causal_mask(attn_scores, mask_value)
 
-    if architecture.attn_position_embeddings_arg_name is not None:
+    if use_rope:
         attn_weights = torch.softmax(attn_scores, dim=-1, dtype=torch.float32)
     else:
         attn_weights = torch.softmax(attn_scores, dim=-1)
