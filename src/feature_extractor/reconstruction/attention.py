@@ -5,7 +5,9 @@ import torch
 from feature_extractor.models import BaseModelArchitecture
 from feature_extractor.typing import BATCH, HEAD, HEAD_DIM, SEQUENCE, Tensor
 
-NON_ROPE_MASKED_BIAS = -10000.0  # Matches GPT-2 masked_bias in transformers.modeling_gpt2.
+NON_ROPE_MASKED_BIAS = (
+    -10000.0
+)  # Matches GPT-2 masked_bias in transformers.modeling_gpt2.
 
 
 def _rotate_half(values: torch.Tensor) -> torch.Tensor:
@@ -53,9 +55,7 @@ def _apply_rope(
     return query, key
 
 
-def _apply_causal_mask(
-    attn_scores: torch.Tensor, mask_value: float
-) -> torch.Tensor:
+def _apply_causal_mask(attn_scores: torch.Tensor, mask_value: float) -> torch.Tensor:
     seq_len = attn_scores.shape[-1]
     causal_mask = torch.triu(
         torch.ones(seq_len, seq_len, device=attn_scores.device, dtype=torch.bool),
@@ -83,7 +83,7 @@ def reconstruct_attention_weights(
     for numerical stability. We mirror that behavior and cast back to the query
     dtype to match the model output.
     """
-    use_rope = architecture.attn_position_embeddings_arg_name is not None
+    use_rope = architecture.attn_use_rope
 
     if use_rope:
         if position_embeddings is None:

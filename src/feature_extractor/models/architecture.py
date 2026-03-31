@@ -47,6 +47,7 @@ class BaseModelArchitecture:
             "past_key_values",
         ]
     )
+    attn_use_rope: bool = True
     attn_position_embeddings_arg_name: str | None = "position_embeddings"
     attn_attention_mask_arg_name: str | None = "attention_mask"
     attn_return_fields: list[str] = field(
