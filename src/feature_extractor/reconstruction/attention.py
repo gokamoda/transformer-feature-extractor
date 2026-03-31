@@ -13,15 +13,11 @@ def _rotate_half(values: torch.Tensor) -> torch.Tensor:
     return torch.cat((-second, first), dim=-1)
 
 
-def _apply_rope(
+def _reshape_rope_embeddings(
+    cos: torch.Tensor,
+    sin: torch.Tensor,
     query: torch.Tensor,
-    key: torch.Tensor,
-    position_embeddings: tuple[torch.Tensor, torch.Tensor],
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    cos, sin = position_embeddings
-    head_dim = query.shape[-1]
-    seq_len = query.shape[-2]
-
     if cos.dim() == 2:
         cos = cos.unsqueeze(0).unsqueeze(0)
         sin = sin.unsqueeze(0).unsqueeze(0)
@@ -33,9 +29,20 @@ def _apply_rope(
             f"Unexpected RoPE embedding rank {cos.dim()}, expected 2-4."
         )
 
+    head_dim = query.shape[-1]
+    seq_len = query.shape[-2]
     cos = cos[..., :seq_len, :head_dim].to(dtype=query.dtype)
     sin = sin[..., :seq_len, :head_dim].to(dtype=query.dtype)
+    return cos, sin
 
+
+def _apply_rope(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    position_embeddings: tuple[torch.Tensor, torch.Tensor],
+) -> tuple[torch.Tensor, torch.Tensor]:
+    cos, sin = position_embeddings
+    cos, sin = _reshape_rope_embeddings(cos, sin, query)
     query = (query * cos) + (_rotate_half(query) * sin)
     key = (key * cos) + (_rotate_half(key) * sin)
     return query, key
@@ -59,6 +66,11 @@ def reconstruct_attention_weights(
     position_embeddings: tuple[torch.Tensor, torch.Tensor] | None,
     architecture: BaseModelArchitecture,
 ) -> Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE]:
+    """Reconstruct attention weights, matching GPT2 (SDPA) and Llama (RoPE) behavior.
+
+    RoPE-based models upcast softmax to float32 in the transformers implementation,
+    so we mirror that behavior and cast back to the query dtype.
+    """
     if query is None or key is None:
         raise ValueError("query and key must be provided to reconstruct attention.")
 
@@ -70,10 +82,13 @@ def reconstruct_attention_weights(
     attn_scores = torch.matmul(query, key.transpose(-1, -2))
     attn_scores = attn_scores / math.sqrt(query.shape[-1])
 
-    mask_value = torch.finfo(attn_scores.dtype).min
+    if architecture.attn_position_embeddings_arg_name is not None:
+        mask_value = float(torch.finfo(attn_scores.dtype).min)
+    else:
+        mask_value = -10000.0
+
     if attention_mask is not None:
         attn_scores = attn_scores + attention_mask
-        mask_value = float(attention_mask.min().item())
 
     attn_scores = _apply_causal_mask(attn_scores, mask_value)
 
