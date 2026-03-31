@@ -73,17 +73,6 @@ def reconstruct_attention_weights(
     RoPE-based models upcast softmax to float32 in the transformers implementation,
     so we mirror that behavior and cast back to the query dtype.
     """
-    missing = []
-    if query is None:
-        missing.append("query")
-    if key is None:
-        missing.append("key")
-    if missing:
-        missing_fields = ", ".join(missing)
-        raise ValueError(
-            f"{missing_fields} must be provided to reconstruct attention."
-        )
-
     if architecture.attn_position_embeddings_arg_name is not None:
         if position_embeddings is None:
             raise ValueError("RoPE-based architectures require position embeddings.")

@@ -34,7 +34,7 @@ def _create_dataset():
 
 
 @pytest.mark.parametrize("model_name", SUPPORTED_MODELS)
-def test_reconstruct_attention_weights_supported_models(model_name):
+def test_reconstruct_attention_weights(model_name):
     config = _create_feature_config()
     extractor = FeatureExtractor(model_name_or_path=model_name, feature_cfg=config)
 
