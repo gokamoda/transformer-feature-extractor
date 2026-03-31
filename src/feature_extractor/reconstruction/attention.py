@@ -5,7 +5,7 @@ import torch
 from feature_extractor.models import BaseModelArchitecture
 from feature_extractor.typing import BATCH, HEAD, HEAD_DIM, SEQUENCE, Tensor
 
-GPT2_MASKED_BIAS = -10000.0
+NON_ROPE_MASKED_BIAS = -10000.0
 
 
 def _rotate_half(values: torch.Tensor) -> torch.Tensor:
@@ -64,6 +64,12 @@ def _apply_causal_mask(
     return attn_scores.masked_fill(causal_mask, mask_value)
 
 
+def _get_mask_value(use_rope: bool, dtype: torch.dtype) -> float:
+    if use_rope:
+        return float(torch.finfo(dtype).min)
+    return NON_ROPE_MASKED_BIAS
+
+
 def reconstruct_attention_weights(
     query: Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM],
     key: Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM],
@@ -87,10 +93,7 @@ def reconstruct_attention_weights(
     attn_scores = torch.matmul(query, key.transpose(-1, -2))
     attn_scores = attn_scores / math.sqrt(query.shape[-1])
 
-    if use_rope:
-        mask_value = float(torch.finfo(attn_scores.dtype).min)
-    else:
-        mask_value = GPT2_MASKED_BIAS
+    mask_value = _get_mask_value(use_rope, attn_scores.dtype)
 
     if attention_mask is not None:
         attn_scores = attn_scores + attention_mask
