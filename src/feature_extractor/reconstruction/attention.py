@@ -5,7 +5,7 @@ import torch
 from feature_extractor.models import BaseModelArchitecture
 from feature_extractor.typing import BATCH, HEAD, HEAD_DIM, SEQUENCE, Tensor
 
-NON_ROPE_MASKED_BIAS = -10000.0
+NON_ROPE_MASKED_BIAS = -10000.0  # Matches GPT-2 masked_bias in transformers.
 
 
 def _rotate_half(values: torch.Tensor) -> torch.Tensor:

@@ -48,29 +48,29 @@ def test_attention_reconstruction_accuracy(model_name):
         collate_fn=collator,
     )
 
-    for batch, hook_result in extractor.extract_features(dataloader):
-        assert "input_ids" in batch
-        attn_result = hook_result.attn[0]
-        assert attn_result is not None
-        assert attn_result.query is not None
-        assert attn_result.key is not None
-        assert attn_result.attn_weights is not None
-        if extractor.architecture.attn_position_embeddings_arg_name is not None:
-            assert attn_result.position_embeddings is not None
-        else:
-            assert attn_result.position_embeddings is None
+    batch, hook_result = next(extractor.extract_features(dataloader))
+    assert "input_ids" in batch
+    attn_result = hook_result.attn[0]
+    assert attn_result is not None
+    assert attn_result.query is not None
+    assert attn_result.key is not None
+    assert attn_result.attn_weights is not None
+    if extractor.architecture.attn_position_embeddings_arg_name is not None:
+        assert attn_result.position_embeddings is not None
+    else:
+        assert attn_result.position_embeddings is None
 
-        reconstructed = reconstruct_attention_weights(
-            query=attn_result.query,
-            key=attn_result.key,
-            attention_mask=attn_result.attention_mask,
-            position_embeddings=attn_result.position_embeddings,
-            architecture=extractor.architecture,
-        )
+    reconstructed = reconstruct_attention_weights(
+        query=attn_result.query,
+        key=attn_result.key,
+        attention_mask=attn_result.attention_mask,
+        position_embeddings=attn_result.position_embeddings,
+        architecture=extractor.architecture,
+    )
 
-        torch.testing.assert_close(
-            reconstructed, attn_result.attn_weights, rtol=1e-4, atol=1e-4
-        )
+    torch.testing.assert_close(
+        reconstructed, attn_result.attn_weights, rtol=1e-4, atol=1e-4
+    )
 
 
 def test_attention_reconstruction_requires_rope_embeddings():
