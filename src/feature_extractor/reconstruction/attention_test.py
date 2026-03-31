@@ -38,6 +38,10 @@ def _create_dataset():
 def test_attention_reconstruction_accuracy(model_name):
     config = _create_feature_config()
     extractor = FeatureExtractor(model_name_or_path=model_name, feature_cfg=config)
+    is_rope_model = "llama" in model_name.lower()
+    assert (
+        extractor.architecture.attn_position_embeddings_arg_name is not None
+    ) == is_rope_model
 
     dataset = _create_dataset()
     collator = create_collator(extractor.tokenizer)

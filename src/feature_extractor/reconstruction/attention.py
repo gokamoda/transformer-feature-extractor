@@ -71,8 +71,9 @@ def reconstruct_attention_weights(
 ) -> Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE]:
     """Reconstruct attention weights, matching GPT2 (SDPA) and Llama (RoPE) behavior.
 
-    RoPE-based models upcast softmax to float32 in the transformers implementation,
-    so we mirror that behavior and cast back to the query dtype.
+    RoPE-based models upcast softmax to float32 in the transformers implementation
+    for numerical stability. We mirror that behavior and cast back to the query
+    dtype to match the model output.
     """
     use_rope = architecture.attn_position_embeddings_arg_name is not None
 
