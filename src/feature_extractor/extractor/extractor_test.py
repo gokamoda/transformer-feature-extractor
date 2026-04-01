@@ -25,6 +25,7 @@ def _create_feature_config():
             "attn.layer_00.attention_mask",
             "attn.layer_00.positional_embedding",
             "mlp.layer_00.activation",
+            "mlp.layer_00.down_proj_input",
             "mlp.layer_01.output",
         ],
         output_dir="outputs/test_features",
@@ -77,10 +78,15 @@ def test_feature_extractor(model_name):
         == [0]
     )
     assert len(extractor.attn_hook.attn_module_hook_manager.attn_module_hooks) == 2
-    assert extractor.mlp_hook.activation_output_combined_layer_indices == [0, 1]
+    assert (
+        extractor.mlp_hook.activation_down_proj_input_output_combined_layer_indices
+        == [0, 1]
+    )
     assert extractor.mlp_hook.activation_layer_indices == [0]
+    assert extractor.mlp_hook.down_proj_input_layer_indices == [0]
     assert extractor.mlp_hook.output_layer_indices == [1]
     assert len(extractor.mlp_hook.activation_hooks) == 1
+    assert len(extractor.mlp_hook.down_proj_input_hooks) == 1
     assert len(extractor.mlp_hook.output_hooks) == 1
 
     dataset = _create_dataset()
@@ -181,6 +187,11 @@ def test_feature_extractor(model_name):
         assert hook_result.mlp[1].activation is None
         assert len(hook_result.mlp[0].activation.shape) == 3
         assert hook_result.mlp[0].activation.shape[0] == 2
+
+        assert hook_result.mlp[0].down_proj_input is not None
+        assert hook_result.mlp[1].down_proj_input is None
+        assert len(hook_result.mlp[0].down_proj_input.shape) == 3
+        assert hook_result.mlp[0].down_proj_input.shape[0] == 2
 
         assert hook_result.mlp[0].output is None
         assert hook_result.mlp[1].output is not None
