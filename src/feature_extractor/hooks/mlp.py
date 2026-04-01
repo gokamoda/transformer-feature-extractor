@@ -24,6 +24,18 @@ class MLPActivationHook(Hook):
 
 
 @dataclass(repr=False, init=False)
+class MLPDownProjInputObservationResult(AbstractBatchResult):
+    down_proj_input: Tensor[BATCH, SEQUENCE, MLP_DIM]
+
+
+class MLPDownProjInputHook(Hook):
+    result: MLPDownProjInputObservationResult
+
+    def save_result(self, hook_result: dict):
+        self.result = MLPDownProjInputObservationResult(**hook_result)
+
+
+@dataclass(repr=False, init=False)
 class MLPObservationResult(AbstractBatchResult):
     output: Tensor[BATCH, SEQUENCE, HIDDEN_DIM]
 
@@ -48,7 +60,7 @@ class MLPHookManager:
     output_layer_indices: list[int]
     activation_down_proj_input_output_combined_layer_indices: list[int]
     activation_hooks: list[MLPActivationHook]
-    down_proj_input_hooks: list[MLPActivationHook]
+    down_proj_input_hooks: list[MLPDownProjInputHook]
     output_hooks: list[MLPHook]
 
     def __init__(
@@ -158,10 +170,10 @@ class MLPHookManager:
                 layers_module[layer_index], self.model_architecture.mlp_field
             )
             self.down_proj_input_hooks.append(
-                MLPActivationHook(
+                MLPDownProjInputHook(
                     module=getattr(mlp_module, self.model_architecture.mlp_down_proj_field),
                     to_cpu=True,
-                    with_args=["activation"],
+                    with_args=["down_proj_input"],
                 )
             )
 
@@ -192,7 +204,7 @@ class MLPHookManager:
         for layer_index, hook in zip(
             self.down_proj_input_layer_indices, self.down_proj_input_hooks
         ):
-            down_proj_input_features[layer_index] = hook.result.activation
+            down_proj_input_features[layer_index] = hook.result.down_proj_input
         for layer_index, hook in zip(self.output_layer_indices, self.output_hooks):
             output_features[layer_index] = hook.result.output
 

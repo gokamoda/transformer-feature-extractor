@@ -84,10 +84,10 @@ def test_mlp_hook(model_name):
     )
 
     assert isinstance(
-        hook_manager.down_proj_input_hooks[0].result.activation.shape,
+        hook_manager.down_proj_input_hooks[0].result.down_proj_input.shape,
         torch.Size,
     ), "Expected down projection input hook result to have a tensor shape"
-    assert hook_manager.down_proj_input_hooks[0].result.activation.shape[0] == 1, (
+    assert hook_manager.down_proj_input_hooks[0].result.down_proj_input.shape[0] == 1, (
         "Expected batch size 1 (batch size), got "
-        f"{hook_manager.down_proj_input_hooks[0].result.activation.shape[0]}"
+        f"{hook_manager.down_proj_input_hooks[0].result.down_proj_input.shape[0]}"
     )
