@@ -33,13 +33,17 @@ class FeatureExtractor:
     def __init__(
         self,
         model_name_or_path: str,
-        feature_cfg: FeatureConfig,
         hook_dtype: torch.dtype | None = None,
     ) -> None:
         self.model = load_causal_model(model_name_or_path)
         self.tokenizer = load_tokenizer(model_name_or_path)
         self.architecture = get_model_architecture(self.model)
         self.hook_dtype = hook_dtype
+
+    def configure(
+        self,
+        feature_cfg: FeatureConfig,
+    ):
         self.feature_cfg = feature_cfg
         self.install_hooks()
         if self.attn_hook is not None and self.attn_hook.need_eager_attn():
