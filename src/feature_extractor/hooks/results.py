@@ -22,6 +22,7 @@ class AttentionFeatures:
 @dataclass
 class MLPFeatures:
     activation: None | Tensor[SEQUENCE, MLP_DIM]
+    down_proj_input: None | Tensor[SEQUENCE, MLP_DIM]
 
 
 @dataclass
