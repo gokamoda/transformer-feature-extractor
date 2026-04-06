@@ -9,13 +9,13 @@ from feature_extractor.models import SUPPORTED_MODELS
 from feature_extractor.reconstruction import reconstruct_mlp_output
 
 
-def _create_feature_config():
+def _create_feature_config(tmp_path):
     return FeatureConfig(
         feature_names=[
             "mlp.layer_00.output",
             "mlp.layer_00.down_proj_input",
         ],
-        output_dir="outputs/test_mlp_reconstruction",
+        output_dir=str(tmp_path),
         save_format="pt",
         batch_size=16,
     )
@@ -31,8 +31,8 @@ def _create_dataset():
 
 
 @pytest.mark.parametrize("model_name", SUPPORTED_MODELS)
-def test_mlp_output_reconstruction_accuracy(model_name):
-    config = _create_feature_config()
+def test_mlp_output_reconstruction_accuracy(model_name, tmp_path):
+    config = _create_feature_config(tmp_path)
     extractor = FeatureExtractor(model_name_or_path=model_name, feature_cfg=config)
 
     dataset = _create_dataset()

@@ -24,8 +24,9 @@ def reconstruct_mlp_output(
     mlp_module = getattr(layers_module[layer_index], architecture.mlp_field)
     down_proj = getattr(mlp_module, architecture.mlp_down_proj_field)
 
-    device = next(down_proj.parameters()).device
-    dtype = next(down_proj.parameters()).dtype
+    first_param = next(down_proj.parameters())
+    device = first_param.device
+    dtype = first_param.dtype
 
     with torch.no_grad():
         return down_proj(down_proj_input.to(device=device, dtype=dtype)).cpu()
