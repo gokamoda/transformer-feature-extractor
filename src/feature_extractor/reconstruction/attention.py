@@ -93,16 +93,10 @@ def reconstruct_attention_weights(
     attn_scores = torch.matmul(query, key.transpose(-1, -2))
     attn_scores = attn_scores / math.sqrt(query.shape[-1])
 
-    mask_value = _get_mask_value(use_rope, attn_scores.dtype)
 
     if attention_mask is not None:
         attn_scores = attn_scores + attention_mask
 
-    attn_scores = _apply_causal_mask(attn_scores, mask_value)
-
-    if use_rope:
-        attn_weights = torch.softmax(attn_scores, dim=-1, dtype=torch.float32)
-    else:
-        attn_weights = torch.softmax(attn_scores, dim=-1)
+    attn_weights = torch.softmax(attn_scores, dim=-1)
 
     return attn_weights.to(query.dtype)
