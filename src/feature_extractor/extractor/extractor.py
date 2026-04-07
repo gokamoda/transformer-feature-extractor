@@ -6,6 +6,8 @@ from feature_extractor.configs.schema import FeatureConfig
 from feature_extractor.hooks import (
     AttentionHookManager,
     AttentionHookResult,
+    EmbeddingHookManager,
+    EmbeddingHookResult,
     HookResult,
     LayerHookManager,
     LayerHookResult,
@@ -26,6 +28,7 @@ class FeatureExtractor:
     tokenizer: TokenizersBackend
     architecture: BaseModelArchitecture
     feature_cfg: FeatureConfig
+    embedding_hook: EmbeddingHookManager | None = None
     layer_hook: LayerHookManager | None = None
     attn_hook: AttentionHookManager | None = None
     mlp_hook: MLPHookManager | None = None
@@ -50,6 +53,13 @@ class FeatureExtractor:
             self.model.set_attn_implementation("eager")
 
     def install_hooks(self):
+        if EmbeddingHookManager.need_embedding_hook(self.feature_cfg):
+            self.embedding_hook = EmbeddingHookManager(
+                model=self.model,
+                architecture=self.architecture,
+                feature_cfg=self.feature_cfg,
+            )
+
         if LayerHookManager.need_layer_hook(self.feature_cfg):
             if not self.architecture.supports_layer_output:
                 raise ValueError(
@@ -83,9 +93,12 @@ class FeatureExtractor:
             )
 
     def get_features(self):
+        embedding_result: EmbeddingHookResult | None = None
         layer_result: list[LayerHookResult | None] | None = None
         attn_result: list[AttentionHookResult | None] | None = None
         mlp_result: list[MLPHookResult | None] | None = None
+        if self.embedding_hook is not None:
+            embedding_result = self.embedding_hook.get_features()
         if self.layer_hook is not None:
             layer_result = self.layer_hook.get_features(
                 num_layers=get_num_layers(self.model.config, self.architecture)
@@ -98,7 +111,12 @@ class FeatureExtractor:
             mlp_result = self.mlp_hook.get_features(
                 num_layers=get_num_layers(self.model.config, self.architecture)
             )
-        return HookResult(layers=layer_result, attn=attn_result, mlp=mlp_result)
+        return HookResult(
+            embeddings=embedding_result,
+            layers=layer_result,
+            attn=attn_result,
+            mlp=mlp_result,
+        )
 
     @torch.no_grad()
     def extract_features(

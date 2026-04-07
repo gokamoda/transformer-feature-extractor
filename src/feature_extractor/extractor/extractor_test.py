@@ -16,6 +16,7 @@ from feature_extractor.models.architecture import (
 def _create_feature_config():
     return FeatureConfig(
         feature_names=[
+            "embeddings",
             "layers.layer_00.output",
             "attn.layer_00.query",
             "attn.layer_01.key",
@@ -64,6 +65,7 @@ def test_feature_extractor(model_name):
 
     assert extractor.model is not None
     assert extractor.tokenizer is not None
+    assert extractor.embedding_hook is not None
     assert extractor.attn_hook is not None
     assert extractor.attn_hook.qkv_hook_manager is not None
     assert extractor.attn_hook.attn_module_hook_manager is not None
@@ -107,6 +109,12 @@ def test_feature_extractor(model_name):
     for batch, hook_result in extractor.extract_features(dataloader):
         # batch data
         assert batch["indices"] == ["0", "1"]
+
+        # embedding features
+        assert hook_result.embeddings is not None
+        assert len(hook_result.embeddings.output.shape) == 3
+        assert hook_result.embeddings.output.shape[0] == 2
+        assert hook_result.embeddings.output.shape[2] == hidden_size
 
         # layer features
         assert hook_result.layers[0] is not None
