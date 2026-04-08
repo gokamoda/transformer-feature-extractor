@@ -29,12 +29,12 @@ def test_hook(model_name):
     assert hook_manager.input_layer_indices == [0], (
         f"Expected input_layer_indices [0], got {hook_manager.input_layer_indices}"
     )
+    assert hook_manager.layer_indices == [0], (
+        f"Expected layer_indices [0], got {hook_manager.layer_indices}"
+    )
 
     assert len(hook_manager.layer_hooks) == 1, (
-        f"Expected 1 output hook, got {len(hook_manager.layer_hooks)}"
-    )
-    assert len(hook_manager.input_hooks) == 1, (
-        f"Expected 1 input hook, got {len(hook_manager.input_hooks)}"
+        f"Expected 1 combined hook, got {len(hook_manager.layer_hooks)}"
     )
 
     tokenizer = load_tokenizer(model_name)
