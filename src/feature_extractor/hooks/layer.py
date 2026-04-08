@@ -12,8 +12,8 @@ from .base import AbstractBatchResult
 
 @dataclass(repr=False, init=False)
 class BatchLayerObservationResult(AbstractBatchResult):
-    input_hidden_states: Tensor[BATCH, SEQUENCE, HIDDEN_DIM]
     hidden_states: Tensor[BATCH, SEQUENCE, HIDDEN_DIM]
+    hidden_states_output: Tensor[BATCH, SEQUENCE, HIDDEN_DIM]
 
 
 class LayerHook(Hook):
@@ -59,14 +59,18 @@ class LayerHookManager:
             self.model_architecture.layers_field,
         )
         for index in self.layer_indices:
-            need_input = index in self.input_layer_indices
-            need_output = index in self.output_layer_indices
+            hook_kwargs = {}
+            if index in self.input_layer_indices:
+                hook_kwargs['with_args'] = self.model_architecture.layers_pos_args
+                hook_kwargs['with_kwargs'] = [self.model_architecture.layers_input_hidden_state_arg_name]
+            if index in self.output_layer_indices:
+                hook_kwargs['with_output'] = self.model_architecture.layer_return_fields
+
             self.layer_hooks.append(
                 LayerHook(
                     module=layers_module[index],
                     to_cpu=True,
-                    with_args=["input_hidden_states"] if need_input else None,
-                    with_output=self.model_architecture.layer_return_fields if need_output else None,
+                    **hook_kwargs
                 )
             )
 
@@ -121,9 +125,9 @@ class LayerHookManager:
             if hook.result is None:
                 continue
             if layer_index in self.input_layer_indices:
-                input_features[layer_index] = hook.result.input_hidden_states
+                input_features[layer_index] = hook.result.hidden_states
             if layer_index in self.output_layer_indices:
-                output_features[layer_index] = hook.result.hidden_states
+                output_features[layer_index] = hook.result.hidden_states_output
 
         features: list[LayerHookResult | None] = []
         for layer_input, layer_output in zip(input_features, output_features):
