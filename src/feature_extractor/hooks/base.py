@@ -133,6 +133,7 @@ class Hook:
             assert len(args) <= len(self.positional_args_keys), (
                 f"Positional args length {len(args)} exceeds expected "
                 f"maximum length {len(self.positional_args_keys)}."
+                f"in hook {self.__class__.__name__}"
             )
             for k, v in zip(self.positional_args_keys, args):
                 assert k not in kwargs, f"Key {k} already exists in kwargs."

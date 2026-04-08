@@ -17,6 +17,7 @@ def _create_feature_config():
     return FeatureConfig(
         feature_names=[
             "embeddings",
+            "layers.layer_00.input",
             "layers.layer_00.output",
             "attn.layer_00.query",
             "attn.layer_01.key",
@@ -123,6 +124,12 @@ def test_feature_extractor(model_name):
         )  # (batch_size, seq_len, hidden_dim)
         assert hook_result.layers[0].output.shape[0] == 2
         assert hook_result.layers[0].output.shape[2] == hidden_size
+        assert hook_result.layers[0].input is not None
+        assert (
+            len(hook_result.layers[0].input.shape) == 3
+        )  # (batch_size, seq_len, hidden_dim)
+        assert hook_result.layers[0].input.shape[0] == 2
+        assert hook_result.layers[0].input.shape[2] == hidden_size
         assert hook_result.layers[1] is None
 
         # attention features

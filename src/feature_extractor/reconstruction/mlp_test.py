@@ -33,7 +33,8 @@ def _create_dataset():
 @pytest.mark.parametrize("model_name", SUPPORTED_MODELS)
 def test_mlp_output_reconstruction_accuracy(model_name, tmp_path):
     config = _create_feature_config(tmp_path)
-    extractor = FeatureExtractor(model_name_or_path=model_name, feature_cfg=config)
+    extractor = FeatureExtractor(model_name_or_path=model_name)
+    extractor.configure(config)
 
     dataset = _create_dataset()
     collator = create_collator(extractor.tokenizer)

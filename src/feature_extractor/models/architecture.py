@@ -36,7 +36,11 @@ class BaseModelArchitecture:
     absolute_pos_embedding_field: str | None = None  # default to RoPE
 
     layers_field: str = "layers"
-    layer_return_fields: list[str] = field(default_factory=lambda: ["hidden_states"])
+    layers_pos_args: list[str] = field(default_factory=lambda: [
+        "hidden_states",
+    ])
+    layers_input_hidden_state_arg_name: str = "hidden_states"
+    layer_return_fields: list[str] = field(default_factory=lambda: ["hidden_states_output"])
 
     attn_field: str = "self_attn"
     attn_pos_args: list[str] = field(
