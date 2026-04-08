@@ -22,13 +22,23 @@ class LayerHook(Hook):
         self.result = BatchHiddenStateObservationResult(**hook_result)
 
 
+class LayerInputHook(Hook):
+    result: BatchHiddenStateObservationResult
+
+    def save_result(self, hook_result: dict):
+        self.result = BatchHiddenStateObservationResult(**hook_result)
+
+
 @dataclass
 class LayerHookResult:
+    input: None | Tensor[BATCH, SEQUENCE, HIDDEN_DIM]
     output: None | Tensor[BATCH, SEQUENCE, HIDDEN_DIM]
 
 
 class LayerHookManager:
-    layer_indices: list[int]
+    input_layer_indices: list[int]
+    output_layer_indices: list[int]
+    input_hooks: list[LayerInputHook]
     layer_hooks: list[LayerHook]
 
     def __init__(
@@ -44,15 +54,22 @@ class LayerHookManager:
         self.install_hook(model)
 
     def reset_hooks(self):
-        self.layer_indices = []
+        self.input_layer_indices = []
+        self.output_layer_indices = []
+        self.input_hooks = []
         self.layer_hooks = []
+
+    @property
+    def layer_indices(self) -> list[int]:
+        """Combined sorted list of all layer indices with hooks installed."""
+        return sorted(set(self.input_layer_indices) | set(self.output_layer_indices))
 
     def install_hook(self, model: PreTrainedModel):
         layers_module = getattr(
             getattr(model, self.model_architecture.model_field),
             self.model_architecture.layers_field,
         )
-        for index in self.layer_indices:
+        for index in self.output_layer_indices:
             self.layer_hooks.append(
                 LayerHook(
                     module=layers_module[index],
@@ -60,9 +77,19 @@ class LayerHookManager:
                     with_output=self.model_architecture.layer_return_fields,
                 )
             )
+        for index in self.input_layer_indices:
+            self.input_hooks.append(
+                LayerInputHook(
+                    module=layers_module[index],
+                    to_cpu=True,
+                    with_args=self.model_architecture.layer_input_fields,
+                )
+            )
 
     def remove_hooks(self):
         for hook in self.layer_hooks:
+            hook.remove()
+        for hook in self.input_hooks:
             hook.remove()
 
     @staticmethod
@@ -79,22 +106,48 @@ class LayerHookManager:
                 if len(parts) == 3 and parts[1].startswith("layer_"):
                     try:
                         layer_index = int(parts[1].split("_")[1])
-                        self.layer_indices.append(int(layer_index))
+                        if parts[2] == "output":
+                            self.output_layer_indices.append(layer_index)
+                        elif parts[2] == "input":
+                            self.input_layer_indices.append(layer_index)
+                        else:
+                            raise ValueError(
+                                f"Invalid layer feature name: {feature_name}"
+                            )
                     except ValueError as e:
                         raise ValueError(
                             f"Invalid layer index in feature name: {feature_name}"
                         ) from e
 
     def get_features(self, num_layers: int) -> list[LayerHookResult | None]:
-        features = [None] * num_layers
+        input_features: list[Tensor[BATCH, SEQUENCE, HIDDEN_DIM] | None] = [
+            None
+        ] * num_layers
+        output_features: list[Tensor[BATCH, SEQUENCE, HIDDEN_DIM] | None] = [
+            None
+        ] * num_layers
 
-        for layer_index, hook in zip(self.layer_indices, self.layer_hooks):
+        for layer_index, hook in zip(self.input_layer_indices, self.input_hooks):
             assert num_layers > layer_index, (
                 f"Layer index {layer_index} out of range for model with {num_layers} layers"
             )
             if hook.result is not None:
-                features[layer_index] = LayerHookResult(
-                    output=hook.result.hidden_states
+                input_features[layer_index] = hook.result.hidden_states
+
+        for layer_index, hook in zip(self.output_layer_indices, self.layer_hooks):
+            assert num_layers > layer_index, (
+                f"Layer index {layer_index} out of range for model with {num_layers} layers"
+            )
+            if hook.result is not None:
+                output_features[layer_index] = hook.result.hidden_states
+
+        features: list[LayerHookResult | None] = []
+        for layer_input, layer_output in zip(input_features, output_features):
+            if layer_input is None and layer_output is None:
+                features.append(None)
+            else:
+                features.append(
+                    LayerHookResult(input=layer_input, output=layer_output)
                 )
 
         return features
