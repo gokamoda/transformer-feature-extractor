@@ -130,8 +130,6 @@ class Hook:
 
         # Add positional arguments to the hook result
         if self.positional_args_keys:
-            print(self.positional_args_keys)
-            print(args)
             assert len(args) <= len(self.positional_args_keys), (
                 f"Positional args length {len(args)} exceeds expected "
                 f"maximum length {len(self.positional_args_keys)}."
