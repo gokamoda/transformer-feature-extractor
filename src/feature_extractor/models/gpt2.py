@@ -11,6 +11,10 @@ from .architecture import (
 @dataclass
 class GPT2Architecture(BaseModelArchitecture):
     config_num_layers: str = "n_layer"
+    config_num_attention_heads: str = "n_head"
+    config_num_key_value_heads: str = "n_head"
+    config_hidden_size: str = "n_embd"
+    config_intermediate_size: str = "n_inner"
 
     supports_layer_output: bool = True
     supports_attention_qkv: bool = True

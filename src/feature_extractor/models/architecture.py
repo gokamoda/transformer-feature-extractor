@@ -24,6 +24,7 @@ class BaseModelArchitecture:
     config_num_attention_heads: str = "num_attention_heads"
     config_num_key_value_heads: str = "num_key_value_heads"
     config_hidden_size: str = "hidden_size"
+    config_intermediate_size: str = "intermediate_size"
 
     # Capability flags. Keep these explicit so callers can fail fast for
     # unsupported feature families.
@@ -119,3 +120,8 @@ def get_kv_hidden_size(
     return get_hidden_size_per_head(model_config, architecture) * get_num_kv_heads(
         model_config, architecture
     )
+
+def get_intermediate_size(
+    model_config: PreTrainedConfig, architecture: BaseModelArchitecture
+) -> int:
+    return getattr(model_config, architecture.config_intermediate_size)
