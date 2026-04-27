@@ -36,12 +36,18 @@ class BaseModelArchitecture:
     word_embedding_field: str = "embed_tokens"
     absolute_pos_embedding_field: str | None = None  # default to RoPE
 
+    rope_field: str | None = "rotary_emb"
+
     layers_field: str = "layers"
-    layers_pos_args: list[str] = field(default_factory=lambda: [
-        "hidden_states",
-    ])
+    layers_pos_args: list[str] = field(
+        default_factory=lambda: [
+            "hidden_states",
+        ]
+    )
     layers_input_hidden_state_arg_name: str = "hidden_states"
-    layer_return_fields: list[str] = field(default_factory=lambda: ["hidden_states_output"])
+    layer_return_fields: list[str] = field(
+        default_factory=lambda: ["hidden_states_output"]
+    )
 
     attn_field: str = "self_attn"
     attn_pos_args: list[str] = field(
@@ -120,6 +126,7 @@ def get_kv_hidden_size(
     return get_hidden_size_per_head(model_config, architecture) * get_num_kv_heads(
         model_config, architecture
     )
+
 
 def get_intermediate_size(
     model_config: PreTrainedConfig, architecture: BaseModelArchitecture

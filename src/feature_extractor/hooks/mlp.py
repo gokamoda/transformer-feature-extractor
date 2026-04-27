@@ -125,11 +125,15 @@ class MLPHookManager:
                 | set(self.output_layer_indices)
             )
             layer_indices.sort()
-            self.activation_down_proj_input_output_combined_layer_indices = layer_indices
+            self.activation_down_proj_input_output_combined_layer_indices = (
+                layer_indices
+            )
 
     def check_layer_index_in_range(self, model: PreTrainedModel):
         num_layers = get_num_layers(model.config, self.model_architecture)
-        for layer_index in self.activation_down_proj_input_output_combined_layer_indices:
+        for (
+            layer_index
+        ) in self.activation_down_proj_input_output_combined_layer_indices:
             if layer_index < 0 or layer_index >= num_layers:
                 raise ValueError(
                     f"Layer index {layer_index} is out of range for model with {num_layers} layers."
@@ -171,7 +175,9 @@ class MLPHookManager:
             )
             self.down_proj_input_hooks.append(
                 MLPDownProjInputHook(
-                    module=getattr(mlp_module, self.model_architecture.mlp_down_proj_field),
+                    module=getattr(
+                        mlp_module, self.model_architecture.mlp_down_proj_field
+                    ),
                     to_cpu=True,
                     with_args=["down_proj_input"],
                 )

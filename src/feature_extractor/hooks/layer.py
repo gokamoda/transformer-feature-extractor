@@ -61,17 +61,15 @@ class LayerHookManager:
         for index in self.layer_indices:
             hook_kwargs = {}
             if index in self.input_layer_indices:
-                hook_kwargs['with_args'] = self.model_architecture.layers_pos_args
-                hook_kwargs['with_kwargs'] = [self.model_architecture.layers_input_hidden_state_arg_name]
+                hook_kwargs["with_args"] = self.model_architecture.layers_pos_args
+                hook_kwargs["with_kwargs"] = [
+                    self.model_architecture.layers_input_hidden_state_arg_name
+                ]
             if index in self.output_layer_indices:
-                hook_kwargs['with_output'] = self.model_architecture.layer_return_fields
+                hook_kwargs["with_output"] = self.model_architecture.layer_return_fields
 
             self.layer_hooks.append(
-                LayerHook(
-                    module=layers_module[index],
-                    to_cpu=True,
-                    **hook_kwargs
-                )
+                LayerHook(module=layers_module[index], to_cpu=True, **hook_kwargs)
             )
 
     def remove_hooks(self):
@@ -134,8 +132,6 @@ class LayerHookManager:
             if layer_input is None and layer_output is None:
                 features.append(None)
             else:
-                features.append(
-                    LayerHookResult(input=layer_input, output=layer_output)
-                )
+                features.append(LayerHookResult(input=layer_input, output=layer_output))
 
         return features
