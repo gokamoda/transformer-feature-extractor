@@ -49,7 +49,7 @@ def _create_dataset():
 def test_feature_extractor_initialization(model_name):
     config = _create_feature_config()
     extractor = FeatureExtractor(
-        model_name_or_path=model_name,  hook_dtype=torch.float16
+        model_name_or_path=model_name, hook_dtype=torch.float16
     )
     extractor.configure(config)
     assert extractor.model is not None

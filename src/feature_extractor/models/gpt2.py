@@ -25,15 +25,19 @@ class GPT2Architecture(BaseModelArchitecture):
     absolute_pos_embedding_field: str = "wpe"
 
     layers_field: str = "h"  # field name for transformer blocks in GPT-2
-    layers_pos_args: list[str] = field(default_factory=lambda: [
-        "hidden_states",
-        "past_key_values",
-        'cache_position',
-        'causal_mask',
-        'encoder_hidden_states',
-    ])
+    layers_pos_args: list[str] = field(
+        default_factory=lambda: [
+            "hidden_states",
+            "past_key_values",
+            "cache_position",
+            "causal_mask",
+            "encoder_hidden_states",
+        ]
+    )
     layers_input_hidden_state_arg_name: str = "hidden_states"
-    layer_return_fields: list[str] = field(default_factory=lambda: ["hidden_states_output"])
+    layer_return_fields: list[str] = field(
+        default_factory=lambda: ["hidden_states_output"]
+    )
 
     # GPT-2 block internals
     attn_field: str = "attn"

@@ -34,9 +34,10 @@ def test_mlp_hook(model_name):
     assert hook_manager.output_layer_indices == [1], (
         f"Expected output_layer_indices [1], got {hook_manager.output_layer_indices}"
     )
-    assert (
-        hook_manager.activation_down_proj_input_output_combined_layer_indices == [0, 1]
-    ), (
+    assert hook_manager.activation_down_proj_input_output_combined_layer_indices == [
+        0,
+        1,
+    ], (
         "Expected activation_down_proj_input_output_combined_layer_indices [0, 1], got "
         f"{hook_manager.activation_down_proj_input_output_combined_layer_indices}"
     )
