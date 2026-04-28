@@ -131,6 +131,7 @@ class FeatureExtractor:
                 output_attentions=(
                     self.attn_hook is not None and self.attn_hook.need_eager_attn()
                 ),
+                pad_token_id=self.tokenizer.pad_token_id,
                 max_new_tokens=1,
             )
 
