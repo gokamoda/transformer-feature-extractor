@@ -124,13 +124,14 @@ class FeatureExtractor:
         data_loader: DataLoader,
     ):
         for batch in data_loader:
-            self.model(
+            self.model.generate(  # ty: ignore
                 input_ids=batch["input_ids"].to(self.model.device),
                 attention_mask=batch["attention_mask"].to(self.model.device),
                 return_dict_in_generate=True,
                 output_attentions=(
                     self.attn_hook is not None and self.attn_hook.need_eager_attn()
                 ),
+                max_new_tokens=1,
             )
 
             yield batch, self.get_features()

@@ -35,9 +35,7 @@ def test_hook(model_name):
     )
     expected_embedding = embedding_module(embedding_input)
 
-    assert isinstance(
-        hook_manager.embedding_hook.result.embeddings.shape, torch.Size
-    )
+    assert isinstance(hook_manager.embedding_hook.result.embeddings.shape, torch.Size)
     assert torch.allclose(
         hook_manager.embedding_hook.result.embeddings,
         expected_embedding,

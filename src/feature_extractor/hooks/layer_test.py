@@ -50,7 +50,8 @@ def test_hook(model_name):
     )
 
     assert torch.allclose(
-        hook_manager.layer_hooks[0].result.hidden_states_output, output["hidden_states"][1][0]
+        hook_manager.layer_hooks[0].result.hidden_states_output,
+        output["hidden_states"][1][0],
     )
 
     hook_manager.remove_hooks()

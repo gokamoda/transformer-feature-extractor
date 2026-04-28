@@ -94,7 +94,6 @@ def reconstruct_attention_weights(
     attn_scores = torch.matmul(query, key.transpose(-1, -2))
     attn_scores = attn_scores / math.sqrt(query.shape[-1])
 
-
     if attention_mask is not None:
         attn_scores = attn_scores + attention_mask
 
@@ -104,3 +103,12 @@ def reconstruct_attention_weights(
     attn_weights = torch.softmax(attn_scores, dim=-1)
 
     return attn_weights.to(query.dtype)
+
+
+def create_causal_mask_single(
+    sequence_length: int,
+    dtype: torch.dtype,
+):
+    h = torch.full((sequence_length, sequence_length), torch.finfo(dtype).min)
+    mask = torch.triu(h, diagonal=1)
+    return mask

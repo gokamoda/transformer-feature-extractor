@@ -3,6 +3,7 @@ from typing import Callable
 
 import torch
 from transformers import (
+    AutoConfig,
     AutoModelForCausalLM,
     AutoTokenizer,
     PreTrainedModel,
@@ -81,6 +82,7 @@ def load_tokenizer(model_name_or_path: str) -> TokenizersBackend:
 
 def resolve_model_architecture(model_class_name: str) -> BaseModelArchitecture:
     for entry in ARCHITECTURE_REGISTRY:
+        print(f"Checking if {model_class_name} matches {entry.matcher}")
         if entry.matcher(model_class_name):
             return entry.factory()
 
@@ -99,7 +101,7 @@ def get_model_architecture(
     Accepts a model instance, model class, or class name string.
     """
     if isinstance(model, str):
-        model_class_name = model
+        model_class_name = AutoConfig.from_pretrained(model).architectures[0]
     elif isinstance(model, type):
         model_class_name = model.__name__
     else:
