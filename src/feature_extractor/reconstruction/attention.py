@@ -97,6 +97,7 @@ def reconstruct_attention_weights(
     attn_scores = attn_scores / math.sqrt(query.shape[-1])
 
     if attention_mask is not None:
+        attention_mask = attention_mask.to(attn_scores.dtype).to(attn_scores.device)
         attn_scores = attn_scores + attention_mask
 
     if before_softmax:
