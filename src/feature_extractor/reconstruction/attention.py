@@ -76,6 +76,7 @@ def reconstruct_attention_weights(
     attention_mask: torch.Tensor | None,
     position_embeddings: tuple[torch.Tensor, torch.Tensor] | None,
     architecture: BaseModelArchitecture,
+    before_softmax=False,
 ) -> Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE]:
     """Reconstruct attention weights, matching GPT2 (SDPA) and Llama (RoPE) behavior.
 
@@ -96,6 +97,9 @@ def reconstruct_attention_weights(
 
     if attention_mask is not None:
         attn_scores = attn_scores + attention_mask
+
+    if before_softmax:
+        return attn_scores.to(query.dtype)
 
     attn_weights = torch.softmax(attn_scores, dim=-1)
 
