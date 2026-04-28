@@ -50,6 +50,8 @@ def _apply_rope(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     cos, sin = position_embeddings
     cos, sin = _reshape_rope_embeddings(cos, sin, query)
+    query = query.to(cos.dtype).to(cos.device)
+    key = key.to(cos.dtype).to(cos.device)
     query = (query * cos) + (_rotate_half(query) * sin)
     key = (key * cos) + (_rotate_half(key) * sin)
     return query, key
