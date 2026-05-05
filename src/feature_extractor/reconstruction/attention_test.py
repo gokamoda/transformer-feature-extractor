@@ -7,7 +7,10 @@ from feature_extractor.data.dataset import TextDataEntry, TextDataset, create_co
 from feature_extractor.extractor.extractor import FeatureExtractor
 from feature_extractor.models import SUPPORTED_MODELS
 from feature_extractor.models.llama import LlamaArchitecture
-from feature_extractor.reconstruction import reconstruct_attention_weights
+from feature_extractor.reconstruction.attention import (
+    reconstruct_attention_weights,
+    reconstruct_attn_output,
+)
 
 
 def _create_feature_config():
@@ -15,9 +18,11 @@ def _create_feature_config():
         feature_names=[
             "attn.layer_00.query",
             "attn.layer_00.key",
+            "attn.layer_00.value",
             "attn.layer_00.attn_weights",
             "attn.layer_00.attention_mask",
             "attn.layer_00.positional_embedding",
+            "attn.layer_00.output",
         ],
         output_dir="outputs/test_reconstruction",
         save_format="pt",
@@ -35,7 +40,7 @@ def _create_dataset():
 
 
 @pytest.mark.parametrize("model_name", SUPPORTED_MODELS)
-def test_attention_reconstruction_accuracy(model_name):
+def test_attention_weight_reconstruction_accuracy(model_name):
     config = _create_feature_config()
     extractor = FeatureExtractor(model_name_or_path=model_name)
     extractor.configure(config)
@@ -89,3 +94,57 @@ def test_attention_reconstruction_requires_rope_embeddings():
             position_embeddings=None,
             architecture=architecture,
         )
+
+
+@pytest.mark.parametrize("model_name", SUPPORTED_MODELS)
+@pytest.mark.parametrize("head_wise", [False, True])
+def test_attention_reconstruction_accuracy(model_name, head_wise):
+    config = _create_feature_config()
+    extractor = FeatureExtractor(model_name_or_path=model_name)
+    extractor.configure(config)
+
+    dataset = _create_dataset()
+    collator = create_collator(extractor.tokenizer)
+    dataloader = DataLoader(
+        dataset,
+        shuffle=False,
+        batch_size=2,
+        collate_fn=collator,
+    )
+
+    batch, hook_result = next(extractor.extract_features(dataloader))
+    assert "input_ids" in batch
+    attn_result = hook_result.attn[0]
+    assert attn_result is not None
+    assert attn_result.query is not None
+    assert attn_result.key is not None
+    assert attn_result.attn_weights is not None
+    if extractor.architecture.attn_position_embeddings_arg_name is not None:
+        assert attn_result.position_embeddings is not None
+    else:
+        assert attn_result.position_embeddings is None
+
+    model_module = getattr(extractor.model, extractor.architecture.model_field)
+    layer_module = getattr(model_module, extractor.architecture.layers_field)[0]
+    attn_module = getattr(layer_module, extractor.architecture.attn_field)
+    o_proj_module = getattr(attn_module, extractor.architecture.attn_o_proj_field)
+    reconstructed_output = reconstruct_attn_output(
+        attn_weights=attn_result.attn_weights,
+        value=attn_result.value,
+        o_proj_module=o_proj_module,
+        head_wise=head_wise,
+    )
+    if head_wise:
+        reconstructed_output = reconstructed_output.sum(dim=-2)
+        if o_proj_module.bias is not None:
+            reconstructed_output = reconstructed_output + o_proj_module.bias
+
+        atol = 1e-2
+        rtol = 1e-2
+    else:
+        atol = None
+        rtol = None
+
+    torch.testing.assert_close(
+        reconstructed_output, attn_result.output, atol=atol, rtol=rtol
+    )

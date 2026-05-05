@@ -83,7 +83,9 @@ def load_tokenizer(model_name_or_path: str) -> TokenizersBackend:
 def resolve_model_architecture(model_class_name: str) -> BaseModelArchitecture:
     for entry in ARCHITECTURE_REGISTRY:
         if entry.matcher(model_class_name):
-            print(f"Matched model class {model_class_name} to architecture {entry.factory.__name__}")
+            print(
+                f"Matched model class {model_class_name} to architecture {entry.factory.__name__}"
+            )
             return entry.factory()
 
     logger.warning(

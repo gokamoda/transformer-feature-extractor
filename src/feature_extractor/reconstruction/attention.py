@@ -1,9 +1,10 @@
 import math
 
 import torch
+from transformers.pytorch_utils import Conv1D
 
 from feature_extractor.models import BaseModelArchitecture
-from feature_extractor.typing import BATCH, HEAD, HEAD_DIM, SEQUENCE, Tensor
+from feature_extractor.typing import BATCH, HEAD, HEAD_DIM, HIDDEN_DIM, SEQUENCE, Tensor
 
 NON_ROPE_MASKED_BIAS = (
     -10000.0
@@ -115,3 +116,47 @@ def create_causal_mask_single(
     h = torch.full((sequence_length, sequence_length), torch.finfo(dtype).min)
     mask = torch.triu(h, diagonal=1)
     return mask
+
+
+def reconstruct_attn_output(
+    attn_weights: Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE],
+    value: Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM],
+    o_proj_module: torch.nn.Module,
+    head_wise: bool = False,
+    warnings_enabled: bool = True,
+) -> Tensor[BATCH, SEQUENCE, HIDDEN_DIM] | Tensor[BATCH, SEQUENCE, HEAD, HEAD_DIM]:
+    weighted_value: Tensor[BATCH, SEQUENCE, HEAD, HEAD_DIM] = (
+        torch.matmul(attn_weights, value).transpose(-2, -3).contiguous()
+    )
+
+    if head_wise:
+        if isinstance(o_proj_module, torch.nn.Linear):
+            print("Linear")
+            o_proj_weight_by_head = o_proj_module.weight.T.view(
+                weighted_value.shape[2],  # head
+                weighted_value.shape[3],  # head_dim
+                -1,  # output_dim // num_heads
+            )
+        elif isinstance(o_proj_module, Conv1D):
+            print("Conv1D")
+            o_proj_weight_by_head = o_proj_module.weight.view(
+                weighted_value.shape[2],  # head
+                weighted_value.shape[3],  # head_dim
+                -1,  # output_dim // num_heads
+            )
+        attn_out_reconstructed = torch.einsum(
+            "bshd,hdo->bsho",
+            weighted_value,
+            o_proj_weight_by_head,
+        )
+    else:
+        concatenated_weighted_value_shape = (
+            weighted_value.shape[0],  # batch
+            weighted_value.shape[1],  # sequence
+            -1,  # heads * head_dim
+        )
+        concatenated_weighted_value = weighted_value.reshape(
+            concatenated_weighted_value_shape
+        ).contiguous()
+        attn_out_reconstructed = o_proj_module(concatenated_weighted_value)
+    return attn_out_reconstructed
