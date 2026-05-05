@@ -131,14 +131,12 @@ def reconstruct_attn_output(
 
     if head_wise:
         if isinstance(o_proj_module, torch.nn.Linear):
-            print("Linear")
             o_proj_weight_by_head = o_proj_module.weight.T.view(
                 weighted_value.shape[2],  # head
                 weighted_value.shape[3],  # head_dim
                 -1,  # output_dim // num_heads
             )
         elif isinstance(o_proj_module, Conv1D):
-            print("Conv1D")
             o_proj_weight_by_head = o_proj_module.weight.view(
                 weighted_value.shape[2],  # head
                 weighted_value.shape[3],  # head_dim
@@ -149,6 +147,10 @@ def reconstruct_attn_output(
             weighted_value,
             o_proj_weight_by_head,
         )
+        if warnings_enabled:
+            print(
+                "Take sum over dim -2 and add bias of o_proj to reconstruct full attn output."
+            )
     else:
         concatenated_weighted_value_shape = (
             weighted_value.shape[0],  # batch
