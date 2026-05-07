@@ -10,8 +10,6 @@ def test_config_schema():
             "layers.layer_00.output",
             "layers.layer_11.output",
         ],
-        output_dir="outputs/test_features",
-        save_format="pt",
         batch_size=16,
     )
 

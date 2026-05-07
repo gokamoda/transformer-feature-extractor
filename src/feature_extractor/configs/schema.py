@@ -24,8 +24,6 @@ class FeatureConfig:
             "layers.layer_00.output",
         ]
     )
-    output_dir: str = "outputs/features"
-    save_format: str = "pt"
     batch_size: int = 8
 
     def __post_init__(self):

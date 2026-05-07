@@ -2,8 +2,9 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .extractor.extractor import FeatureExtractor
+    from .configs import FeatureConfig
 
-__all__ = ["FeatureExtractor"]
+__all__ = ["FeatureExtractor", "FeatureConfig"]
 
 
 def __getattr__(name: str):

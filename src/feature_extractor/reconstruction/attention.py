@@ -149,7 +149,7 @@ def reconstruct_attn_output(
         )
         if warnings_enabled:
             print(
-                "Take sum over dim -2 and add bias of o_proj to reconstruct full attn output."
+                "Take sum over dim -2 (head) and add bias of o_proj to reconstruct full attn output."
             )
     else:
         concatenated_weighted_value_shape = (

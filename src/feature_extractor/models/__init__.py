@@ -20,6 +20,7 @@ SUPPORTED_MODELS = [
     "openai-community/gpt2",
     # "meta-llama/Llama-2-7b-hf",
     "meta-llama/Llama-3.2-1B",
+    "HuggingFaceTB/SmolLM2-135M"
 ]
 
 __all__ = [
@@ -54,17 +55,21 @@ ARCHITECTURE_REGISTRY: tuple[ArchitectureRegistryEntry, ...] = (
 )
 
 
-def load_causal_model(model_name_or_path: str) -> PreTrainedModel:
-    if torch.cuda.is_available():
-        if torch.cuda.device_count() > 1:
-            model = AutoModelForCausalLM.from_pretrained(
-                model_name_or_path, device_map="auto"
-            )
+def load_causal_model(model_name_or_path: str, device: str | None = None) -> PreTrainedModel:
+    if device is None: # auto
+        if torch.cuda.is_available():
+            if torch.cuda.device_count() > 1:
+                model = AutoModelForCausalLM.from_pretrained(
+                    model_name_or_path, device_map="auto"
+                )
+            else:
+                model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
+                model = model.to("cuda")  # ty: ignore
         else:
             model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
-            model = model.to("cuda")  # ty: ignore
     else:
         model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
+        model = model.to(device)  # type: ignore
 
     model.eval()
     logger.info(f"Model loaded on device: {model.device}")

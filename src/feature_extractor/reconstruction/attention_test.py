@@ -24,8 +24,6 @@ def _create_feature_config():
             "attn.layer_00.positional_embedding",
             "attn.layer_00.output",
         ],
-        output_dir="outputs/test_reconstruction",
-        save_format="pt",
         batch_size=16,
     )
 

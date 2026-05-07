@@ -15,8 +15,6 @@ def _create_feature_config(tmp_path):
             "mlp.layer_00.output",
             "mlp.layer_00.down_proj_input",
         ],
-        output_dir=str(tmp_path),
-        save_format="pt",
         batch_size=16,
     )
 

@@ -30,8 +30,6 @@ def _create_feature_config():
             "mlp.layer_00.down_proj_input",
             "mlp.layer_01.output",
         ],
-        output_dir="outputs/test_features",
-        save_format="pt",
         batch_size=16,
     )
 

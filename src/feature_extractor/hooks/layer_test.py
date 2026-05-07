@@ -71,8 +71,6 @@ def test_layer_input_equals_embedding_output_rope(model_name):
             "embeddings",
             "layers.layer_00.input",
         ],
-        output_dir="outputs/test_features",
-        save_format="pt",
         batch_size=16,
     )
 
