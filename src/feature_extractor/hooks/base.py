@@ -11,6 +11,16 @@ from feature_extractor.logger import init_logging
 logger = init_logging(__name__)
 
 
+class StopForwardError(Exception):
+    """Exception to raise inside a forward hook to stop model forward/inference.
+
+    Forward hooks can raise this to abort the current forward/generation call
+    when all required features have been collected.
+    """
+
+    pass
+
+
 @dataclass
 class AbstractResult:
     def __repr__(self):

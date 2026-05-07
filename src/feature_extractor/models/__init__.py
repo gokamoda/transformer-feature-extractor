@@ -20,7 +20,7 @@ SUPPORTED_MODELS = [
     "openai-community/gpt2",
     # "meta-llama/Llama-2-7b-hf",
     "meta-llama/Llama-3.2-1B",
-    "HuggingFaceTB/SmolLM2-135M"
+    "HuggingFaceTB/SmolLM2-135M",
 ]
 
 __all__ = [
@@ -43,6 +43,10 @@ class ArchitectureRegistryEntry:
     factory: Callable[[], BaseModelArchitecture]
 
 
+def callable_name(fn: Callable[..., object]) -> str:
+    return getattr(fn, "__name__", fn.__class__.__name__)
+
+
 ARCHITECTURE_REGISTRY: tuple[ArchitectureRegistryEntry, ...] = (
     ArchitectureRegistryEntry(
         matcher=lambda class_name: "LlamaForCausalLM" in class_name,
@@ -55,8 +59,10 @@ ARCHITECTURE_REGISTRY: tuple[ArchitectureRegistryEntry, ...] = (
 )
 
 
-def load_causal_model(model_name_or_path: str, device: str | None = None) -> PreTrainedModel:
-    if device is None: # auto
+def load_causal_model(
+    model_name_or_path: str, device: str | None = None
+) -> PreTrainedModel:
+    if device is None:  # auto
         if torch.cuda.is_available():
             if torch.cuda.device_count() > 1:
                 model = AutoModelForCausalLM.from_pretrained(
@@ -89,7 +95,7 @@ def resolve_model_architecture(model_class_name: str) -> BaseModelArchitecture:
     for entry in ARCHITECTURE_REGISTRY:
         if entry.matcher(model_class_name):
             print(
-                f"Matched model class {model_class_name} to architecture {entry.factory.__name__}"
+                f"Matched model class {model_class_name} to architecture {callable_name(entry.factory)}"
             )
             return entry.factory()
 

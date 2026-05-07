@@ -4,6 +4,7 @@ from transformers import PreTrainedConfig, PreTrainedModel
 from transformers.models.llama.modeling_llama import repeat_kv
 
 from feature_extractor.configs import FeatureConfig
+from feature_extractor.configs.schema import AttentionFeatureSpec
 from feature_extractor.hooks.base import Hook
 from feature_extractor.models import BaseModelArchitecture
 from feature_extractor.models.architecture import (
@@ -78,17 +79,15 @@ class QKVHookManager:
         self.qkv_combined_hooks = []
 
     def _resolve_layer_index(self, feature_cfg: FeatureConfig) -> None:
-        for feature_name in feature_cfg.feature_names:
-            if feature_name.startswith("attn."):
-                parts = feature_name.split(".")
-                if len(parts) == 3 and parts[1].startswith("layer_"):
-                    layer_index = int(parts[1].split("_")[1])
-                    if parts[2] == "query":
-                        self.query_layer_indices.append(layer_index)
-                    elif parts[2] == "key":
-                        self.key_layer_indices.append(layer_index)
-                    elif parts[2] == "value":
-                        self.value_layer_indices.append(layer_index)
+        for feature in feature_cfg.feature_specs:
+            if not isinstance(feature, AttentionFeatureSpec):
+                continue
+            if feature.feature == "query":
+                self.query_layer_indices.append(feature.layer_index)
+            elif feature.feature == "key":
+                self.key_layer_indices.append(feature.layer_index)
+            elif feature.feature == "value":
+                self.value_layer_indices.append(feature.layer_index)
         if self.model_architecture.attn_qkv_implementation == QKV_IMPLEMENTATION_CONV1D:
             qkv_combined_layer_indices = list(
                 set(self.query_layer_indices)
@@ -340,13 +339,11 @@ class QKVHookManager:
 
     @staticmethod
     def need_qkv_hook(feature_cfg: FeatureConfig) -> bool:
-        for feature_name in feature_cfg.feature_names:
-            if feature_name.startswith("attn."):
-                parts = feature_name.split(".")
-                if len(parts) == 3 and parts[1].startswith("layer_"):
-                    if parts[2] in ["query", "key", "value"]:
-                        return True
-        return False
+        return any(
+            isinstance(feature, AttentionFeatureSpec)
+            and feature.feature in ["query", "key", "value"]
+            for feature in feature_cfg.feature_specs
+        )
 
 
 @dataclass(repr=False, init=False)
@@ -396,19 +393,17 @@ class AttentionModuleHookManager:
         self.position_embeddings_layer_indices = []
 
     def _resolve_layer_index(self, feature_cfg: FeatureConfig) -> None:
-        for feature_name in feature_cfg.feature_names:
-            if feature_name.startswith("attn."):
-                parts = feature_name.split(".")
-                if len(parts) == 3 and parts[1].startswith("layer_"):
-                    layer_index = int(parts[1].split("_")[1])
-                    if parts[2] == "attn_weights":
-                        self.attn_weights_layer_indices.append(layer_index)
-                    elif parts[2] == "output":
-                        self.output_layer_indices.append(layer_index)
-                    elif parts[2] == "attention_mask":
-                        self.attention_mask_layer_indices.append(layer_index)
-                    elif parts[2] == "positional_embedding":
-                        self.position_embeddings_layer_indices.append(layer_index)
+        for feature in feature_cfg.feature_specs:
+            if not isinstance(feature, AttentionFeatureSpec):
+                continue
+            if feature.feature == "attn_weights":
+                self.attn_weights_layer_indices.append(feature.layer_index)
+            elif feature.feature == "output":
+                self.output_layer_indices.append(feature.layer_index)
+            elif feature.feature == "attention_mask":
+                self.attention_mask_layer_indices.append(feature.layer_index)
+            elif feature.feature == "positional_embedding":
+                self.position_embeddings_layer_indices.append(feature.layer_index)
 
         if (
             len(self.attn_weights_layer_indices) > 0
@@ -528,18 +523,17 @@ class AttentionModuleHookManager:
 
     @staticmethod
     def need_attn_module_hook(feature_cfg: FeatureConfig) -> bool:
-        for feature_name in feature_cfg.feature_names:
-            if feature_name.startswith("attn."):
-                parts = feature_name.split(".")
-                if len(parts) == 3 and parts[1].startswith("layer_"):
-                    if parts[2] in [
-                        "attn_weights",
-                        "output",
-                        "attention_mask",
-                        "positional_embedding",
-                    ]:
-                        return True
-        return False
+        return any(
+            isinstance(feature, AttentionFeatureSpec)
+            and feature.feature
+            in [
+                "attn_weights",
+                "output",
+                "attention_mask",
+                "positional_embedding",
+            ]
+            for feature in feature_cfg.feature_specs
+        )
 
     def need_eager_attn(self) -> bool:
         if not isinstance(self.layer_indices, list):
@@ -584,37 +578,16 @@ class AttentionHookManager:
             self.attn_module_hook_manager = None
 
     def check_feature_cfg(self, feature_cfg: FeatureConfig):
-        for feature_name in feature_cfg.feature_names:
-            if feature_name.startswith("attn."):
-                parts = feature_name.split(".")
-                assert len(parts) == 3, (
-                    f"Invalid feature name {feature_name} for attention hook."
-                    f"Expected format: attn.layer_{{layer_index}}.feature"
-                )
-                assert parts[1].startswith("layer_"), (
-                    f"Invalid feature name {feature_name} for attention hook."
-                    f"Expected format: attn.layer_{{layer_index}}.feature"
-                )
-                assert parts[2] in [
-                    "query",
-                    "key",
-                    "value",
-                    "attn_weights",
-                    "output",
-                    "attention_mask",
-                    "positional_embedding",
-                ], (
-                    f"Invalid feature name {feature_name} for attention hook."
-                    f"Expected feature to be one of query, key, value, attn_weights,"
-                    f"output, attention_mask, positional_embedding"
-                )
+        for feature in feature_cfg.feature_specs:
+            if isinstance(feature, AttentionFeatureSpec):
+                continue
 
     @staticmethod
     def need_attn_hook(feature_cfg: FeatureConfig) -> bool:
-        for feature_name in feature_cfg.feature_names:
-            if feature_name.startswith("attn."):
-                return True
-        return False
+        return any(
+            isinstance(feature, AttentionFeatureSpec)
+            for feature in feature_cfg.feature_specs
+        )
 
     def get_features(self, num_layers: int) -> list[AttentionHookResult | None]:
         features = []

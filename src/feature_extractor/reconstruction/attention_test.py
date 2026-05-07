@@ -14,7 +14,7 @@ from feature_extractor.reconstruction.attention import (
 
 
 def _create_feature_config():
-    return FeatureConfig(
+    return FeatureConfig.from_str(
         feature_names=[
             "attn.layer_00.query",
             "attn.layer_00.key",

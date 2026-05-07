@@ -14,6 +14,7 @@ from feature_extractor.hooks import (
     MLPHookManager,
     MLPHookResult,
 )
+from feature_extractor.hooks.base import StopForwardError
 from feature_extractor.models import (
     BaseModelArchitecture,
     get_model_architecture,
@@ -37,11 +38,13 @@ class FeatureExtractor:
         self,
         model_name_or_path: str,
         hook_dtype: torch.dtype | None = None,
+        early_stop: bool = True,
     ) -> None:
         self.model = load_causal_model(model_name_or_path)
         self.tokenizer = load_tokenizer(model_name_or_path)
         self.architecture = get_model_architecture(self.model)
         self.hook_dtype = hook_dtype
+        self.early_stop = early_stop
 
     def configure(
         self,
@@ -53,6 +56,14 @@ class FeatureExtractor:
             self.model.set_attn_implementation("eager")
 
     def install_hooks(self):
+        if self.early_stop:
+            deepest_layer_index = self.feature_cfg.deepest_layer_index()
+            print(
+                f"Deepest layer index determined from feature config: {deepest_layer_index}"
+            )
+        else:
+            deepest_layer_index = None
+
         if EmbeddingHookManager.need_embedding_hook(self.feature_cfg):
             self.embedding_hook = EmbeddingHookManager(
                 model=self.model,
@@ -60,7 +71,10 @@ class FeatureExtractor:
                 feature_cfg=self.feature_cfg,
             )
 
-        if LayerHookManager.need_layer_hook(self.feature_cfg):
+        if (
+            LayerHookManager.need_layer_hook(self.feature_cfg)
+            or deepest_layer_index is not None
+        ):
             if not self.architecture.supports_layer_output:
                 raise ValueError(
                     f"Architecture {self.architecture.__class__.__name__} does not support layer output hooks."
@@ -69,6 +83,7 @@ class FeatureExtractor:
                 model=self.model,
                 architecture=self.architecture,
                 feature_cfg=self.feature_cfg,
+                deepest_layer_index=deepest_layer_index,
             )
 
         if AttentionHookManager.need_attn_hook(self.feature_cfg):
@@ -92,7 +107,7 @@ class FeatureExtractor:
                 feature_cfg=self.feature_cfg,
             )
 
-    def get_features(self):
+    def get_features(self) -> HookResult:
         embedding_result: EmbeddingHookResult | None = None
         layer_result: list[LayerHookResult | None] | None = None
         attn_result: list[AttentionHookResult | None] | None = None
@@ -124,15 +139,20 @@ class FeatureExtractor:
         data_loader: DataLoader,
     ):
         for batch in data_loader:
-            self.model.generate(  # ty: ignore
-                input_ids=batch["input_ids"].to(self.model.device),
-                attention_mask=batch["attention_mask"].to(self.model.device),
-                return_dict_in_generate=True,
-                output_attentions=(
-                    self.attn_hook is not None and self.attn_hook.need_eager_attn()
-                ),
-                pad_token_id=self.tokenizer.pad_token_id,
-                max_new_tokens=1,
-            )
+            try:
+                self.model.generate(  # ty: ignore
+                    input_ids=batch["input_ids"].to(self.model.device),
+                    attention_mask=batch["attention_mask"].to(self.model.device),
+                    return_dict_in_generate=True,
+                    output_attentions=(
+                        self.attn_hook is not None and self.attn_hook.need_eager_attn()
+                    ),
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    max_new_tokens=1,
+                )
+            except StopForwardError:
+                # Forward hook signalled that all required features were collected;
+                # swallow and continue to collect features from hooks.
+                pass
 
             yield batch, self.get_features()

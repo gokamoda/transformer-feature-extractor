@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from transformers import PreTrainedModel
 
 from feature_extractor.configs import FeatureConfig
+from feature_extractor.configs.schema import MLPFeatureSpec
 from feature_extractor.hooks.base import Hook
 from feature_extractor.models import BaseModelArchitecture
 from feature_extractor.models.architecture import get_num_layers
@@ -87,32 +88,20 @@ class MLPHookManager:
 
     @staticmethod
     def need_mlp_hook(feature_cfg: FeatureConfig) -> bool:
-        for feature_name in feature_cfg.feature_names:
-            if feature_name.startswith("mlp."):
-                return True
-        return False
+        return any(
+            isinstance(feature, MLPFeatureSpec) for feature in feature_cfg.feature_specs
+        )
 
     def _resolve_layer_index(self, feature_cfg: FeatureConfig):
-        for feature_name in feature_cfg.feature_names:
-            if feature_name.startswith("mlp."):
-                parts = feature_name.split(".")
-                if len(parts) == 3 and parts[1].startswith("layer_"):
-                    try:
-                        layer_index = int(parts[1].split("_")[1])
-                        if parts[2] == "activation":
-                            self.activation_layer_indices.append(layer_index)
-                        elif parts[2] == "down_proj_input":
-                            self.down_proj_input_layer_indices.append(layer_index)
-                        elif parts[2] == "output":
-                            self.output_layer_indices.append(layer_index)
-                        else:
-                            raise ValueError(
-                                f"Invalid MLP feature name: {feature_name}"
-                            )
-                    except ValueError as e:
-                        raise ValueError(
-                            f"Invalid layer index in feature name: {feature_name}"
-                        ) from e
+        for feature in feature_cfg.feature_specs:
+            if not isinstance(feature, MLPFeatureSpec):
+                continue
+            if feature.feature == "activation":
+                self.activation_layer_indices.append(feature.layer_index)
+            elif feature.feature == "down_proj_input":
+                self.down_proj_input_layer_indices.append(feature.layer_index)
+            elif feature.feature == "output":
+                self.output_layer_indices.append(feature.layer_index)
 
         if (
             len(self.activation_layer_indices) > 0
