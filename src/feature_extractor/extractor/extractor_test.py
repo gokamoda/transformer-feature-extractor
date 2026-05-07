@@ -14,7 +14,7 @@ from feature_extractor.models.architecture import (
 
 
 def _create_feature_config():
-    return FeatureConfig(
+    return FeatureConfig.from_str(
         feature_names=[
             "embeddings",
             "layers.layer_00.input",

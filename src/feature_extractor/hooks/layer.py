@@ -1,13 +1,15 @@
 from dataclasses import dataclass
 
+from torch import nn
 from transformers import PreTrainedModel
 
 from feature_extractor.configs import FeatureConfig
+from feature_extractor.configs.schema import LayerFeatureSpec
 from feature_extractor.hooks.base import Hook
 from feature_extractor.models import BaseModelArchitecture
 from feature_extractor.typing import BATCH, HIDDEN_DIM, SEQUENCE, Tensor
 
-from .base import AbstractBatchResult
+from .base import AbstractBatchResult, StopForwardError
 
 
 @dataclass(repr=False, init=False)
@@ -18,9 +20,36 @@ class BatchLayerObservationResult(AbstractBatchResult):
 
 class LayerHook(Hook):
     result: BatchLayerObservationResult
+    early_stop: bool = False
+
+    def __init__(
+        self,
+        module: nn.Module,
+        to_cpu: bool = True,
+        with_args: None | list[str] = None,
+        with_kwargs: bool | list[str] = False,
+        with_output: None | list[str] = None,
+        early_stop: bool = False,
+        empty_hook: bool = False,
+    ):
+        super().__init__(
+            module=module,
+            to_cpu=to_cpu,
+            with_args=with_args,
+            with_kwargs=with_kwargs,
+            with_output=with_output,
+        )
+        self.early_stop = early_stop
+        self.empty_hook = empty_hook
 
     def save_result(self, hook_result: dict):
-        self.result = BatchLayerObservationResult(**hook_result)
+        if not self.empty_hook:
+            self.result = BatchLayerObservationResult(**hook_result)
+        if self.early_stop:
+            print("Early stopping triggered by LayerHook.")
+            raise StopForwardError(
+                "Early stopping forward pass after collecting required layer features."
+            )
 
 
 @dataclass
@@ -40,9 +69,11 @@ class LayerHookManager:
         model: PreTrainedModel,
         architecture: BaseModelArchitecture,
         feature_cfg: FeatureConfig,
+        deepest_layer_index: int | None = None,
     ):
         self.model_architecture = architecture
         self.feature_cfg = feature_cfg
+        self.deepest_layer_index = deepest_layer_index
         self.reset_hooks()
         self._resolve_layer_index(self.feature_cfg)
         self.install_hook(model)
@@ -58,6 +89,9 @@ class LayerHookManager:
             getattr(model, self.model_architecture.model_field),
             self.model_architecture.layers_field,
         )
+
+        early_exit_applied = False
+
         for index in self.layer_indices:
             hook_kwargs = {}
             if index in self.input_layer_indices:
@@ -68,8 +102,26 @@ class LayerHookManager:
             if index in self.output_layer_indices:
                 hook_kwargs["with_output"] = self.model_architecture.layer_return_fields
 
+            if index == self.deepest_layer_index:
+                hook_kwargs["early_stop"] = True
+                assert max(self.layer_indices) == index, (
+                    "Early stopping can only be applied to the deepest layer."
+                )
+                print(f"Applying early stopping at layer index {index}.")
+                early_exit_applied = True
+
             self.layer_hooks.append(
                 LayerHook(module=layers_module[index], to_cpu=True, **hook_kwargs)
+            )
+        if self.deepest_layer_index is not None and not early_exit_applied:
+            print(f"Applying early stopping at layer index {self.deepest_layer_index}.")
+            self.layer_hooks.append(
+                LayerHook(
+                    module=layers_module[self.deepest_layer_index],
+                    to_cpu=True,
+                    early_stop=True,
+                    empty_hook=True,
+                )
             )
 
     def remove_hooks(self):
@@ -78,30 +130,19 @@ class LayerHookManager:
 
     @staticmethod
     def need_layer_hook(feature_cfg: FeatureConfig) -> bool:
-        for feature_name in feature_cfg.feature_names:
-            if feature_name.startswith("layers."):
-                return True
-        return False
+        return any(
+            isinstance(feature, LayerFeatureSpec)
+            for feature in feature_cfg.feature_specs
+        )
 
     def _resolve_layer_index(self, feature_cfg: FeatureConfig) -> None:
-        for feature_name in feature_cfg.feature_names:
-            if feature_name.startswith("layers."):
-                parts = feature_name.split(".")
-                if len(parts) == 3 and parts[1].startswith("layer_"):
-                    try:
-                        layer_index = int(parts[1].split("_")[1])
-                        if parts[2] == "output":
-                            self.output_layer_indices.append(layer_index)
-                        elif parts[2] == "input":
-                            self.input_layer_indices.append(layer_index)
-                        else:
-                            raise ValueError(
-                                f"Invalid layer feature name: {feature_name}"
-                            )
-                    except ValueError as e:
-                        raise ValueError(
-                            f"Invalid layer index in feature name: {feature_name}"
-                        ) from e
+        for feature in feature_cfg.feature_specs:
+            if not isinstance(feature, LayerFeatureSpec):
+                continue
+            if feature.feature == "output":
+                self.output_layer_indices.append(feature.layer_index)
+            elif feature.feature == "input":
+                self.input_layer_indices.append(feature.layer_index)
 
         combined = sorted(
             set(self.input_layer_indices) | set(self.output_layer_indices)

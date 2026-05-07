@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from transformers import PreTrainedModel
 
 from feature_extractor.configs import FeatureConfig
+from feature_extractor.configs.schema import EmbeddingFeatureSpec
 from feature_extractor.hooks.base import Hook
 from feature_extractor.models import BaseModelArchitecture
 from feature_extractor.typing import BATCH, HIDDEN_DIM, SEQUENCE, Tensor
@@ -60,7 +61,10 @@ class EmbeddingHookManager:
 
     @staticmethod
     def need_embedding_hook(feature_cfg: FeatureConfig) -> bool:
-        return "embeddings" in feature_cfg.feature_names
+        return any(
+            isinstance(feature, EmbeddingFeatureSpec)
+            for feature in feature_cfg.feature_specs
+        )
 
     def get_features(self) -> EmbeddingHookResult:
         if self.embedding_hook is None or self.embedding_hook.result is None:

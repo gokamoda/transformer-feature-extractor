@@ -1,8 +1,8 @@
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .extractor.extractor import FeatureExtractor
     from .configs import FeatureConfig
+    from .extractor.extractor import FeatureExtractor
 
 __all__ = ["FeatureExtractor", "FeatureConfig"]
 

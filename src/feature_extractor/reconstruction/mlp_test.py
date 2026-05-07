@@ -10,7 +10,7 @@ from feature_extractor.reconstruction import reconstruct_mlp_output
 
 
 def _create_feature_config(tmp_path):
-    return FeatureConfig(
+    return FeatureConfig.from_str(
         feature_names=[
             "mlp.layer_00.output",
             "mlp.layer_00.down_proj_input",

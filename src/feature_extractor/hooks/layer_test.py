@@ -66,7 +66,7 @@ def test_layer_input_equals_embedding_output_rope(model_name):
     if not architecture.attn_use_rope:
         pytest.skip(f"Model {model_name} does not use RoPE, skipping")
 
-    feature_config = FeatureConfig(
+    feature_config = FeatureConfig.from_str(
         feature_names=[
             "embeddings",
             "layers.layer_00.input",
