@@ -8,6 +8,7 @@ from feature_extractor.extractor.extractor import FeatureExtractor
 from feature_extractor.models import SUPPORTED_MODELS
 from feature_extractor.models.llama import LlamaArchitecture
 from feature_extractor.reconstruction.attention import (
+    get_o_proj_module,
     reconstruct_attention_weights,
     reconstruct_attn_output,
 )
@@ -122,10 +123,11 @@ def test_attention_reconstruction_accuracy(model_name, unfurl):
     else:
         assert attn_result.position_embeddings is None
 
-    model_module = getattr(extractor.model, extractor.architecture.model_field)
-    layer_module = getattr(model_module, extractor.architecture.layers_field)[0]
-    attn_module = getattr(layer_module, extractor.architecture.attn_field)
-    o_proj_module = getattr(attn_module, extractor.architecture.attn_o_proj_field)
+    o_proj_module = get_o_proj_module(
+        model=extractor.model,
+        architecture=extractor.architecture,
+        layer_index=0,
+    )
     reconstructed_output = reconstruct_attn_output(
         attn_weights=attn_result.attn_weights,
         value=attn_result.value,

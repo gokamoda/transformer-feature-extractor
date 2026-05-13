@@ -2,9 +2,10 @@ import math
 from typing import Literal
 
 import torch
+from transformers import PreTrainedModel
 from transformers.pytorch_utils import Conv1D
 
-from feature_extractor.models import BaseModelArchitecture
+from feature_extractor.models import BaseModelArchitecture, load_causal_model
 from feature_extractor.typing import BATCH, HEAD, HEAD_DIM, HIDDEN_DIM, SEQUENCE, Tensor
 
 NON_ROPE_MASKED_BIAS = (
@@ -59,19 +60,25 @@ def _apply_rope(
     return query, key
 
 
-def _apply_causal_mask(attn_scores: torch.Tensor, mask_value: float) -> torch.Tensor:
-    seq_len = attn_scores.shape[-1]
-    causal_mask = torch.triu(
-        torch.ones(seq_len, seq_len, device=attn_scores.device, dtype=torch.bool),
-        diagonal=1,
-    )
-    return attn_scores.masked_fill(causal_mask, mask_value)
-
-
-def _get_mask_value(use_rope: bool, dtype: torch.dtype) -> float:
-    if use_rope:
-        return float(torch.finfo(dtype).min)
-    return NON_ROPE_MASKED_BIAS
+def get_o_proj_module(
+    architecture: BaseModelArchitecture,
+    layer_index: int,
+    model_name_or_path: str | None = None,
+    model: PreTrainedModel | None = None,
+):
+    if model is not None:
+        model_module = getattr(model, architecture.model_field)
+    else:
+        assert model_name_or_path is not None, (
+            "Must provide either model or model_name_or_path"
+        )
+        model_module = getattr(
+            load_causal_model(model_name_or_path), architecture.model_field
+        )
+    layer_module = getattr(model_module, architecture.layers_field)[layer_index]
+    attn_module = getattr(layer_module, architecture.attn_field)
+    o_proj_module = getattr(attn_module, architecture.attn_o_proj_field)
+    return o_proj_module
 
 
 def reconstruct_attention_weights(
