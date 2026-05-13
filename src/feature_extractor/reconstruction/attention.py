@@ -91,9 +91,6 @@ def get_v_proj_module(
     model_name_or_path: str | None = None,
     model: PreTrainedModel | None = None,
 ):
-    assert architecture.attn_v_proj_field is not None, (
-        "Must specify attn_v_proj_field in architecture to get v_proj module."
-    )
     if model is not None:
         model_module = getattr(model, architecture.model_field)
     else:
@@ -107,6 +104,9 @@ def get_v_proj_module(
     attn_module = getattr(layer_module, architecture.attn_field)
 
     if architecture.attn_qkv_implementation == QKV_IMPLEMENTATION_INDEPENDENT_LINEAR:
+        assert architecture.attn_v_proj_field is not None, (
+            "Must specify attn_v_proj_field in architecture to get v_proj module."
+        )
         v_proj_module = getattr(attn_module, architecture.attn_v_proj_field)
     elif architecture.attn_qkv_implementation == QKV_IMPLEMENTATION_CONV1D:
         assert architecture.attn_qkv_proj_field is not None, (
@@ -294,7 +294,6 @@ def _split_v_proj_by_head(
     num_kv_heads: int,
 ) -> tuple[Tensor[HEAD, HIDDEN_DIM, HEAD_DIM], Tensor[HEAD, HEAD_DIM] | None]:
     n_repeat = num_attention_heads // num_kv_heads
-
     v_proj_weight_by_head: Tensor[HEAD, HIDDEN_DIM, HEAD_DIM] = (
         v_proj_module.weight.T.view(
             -1,  # output_dim // num_heads
@@ -368,19 +367,13 @@ def reconstruct_value_vectors(
     )  # [BATCH, SEQUENCE, HEAD, HEAD_DIM] -> [BATCH, HEAD, SEQUENCE, HEAD_DIM]
 
 
-def reconstruct_attn_output_vo_combined(
-    attn_weights: Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE],
-    hidden_states: Tensor[BATCH, SEQUENCE, HIDDEN_DIM],
-    v_proj_module: torch.nn.Module,
+def _precompute_ov_weights(
+    v_proj_module: torch.nn.Linear,
     o_proj_module: torch.nn.Linear | Conv1D,
     num_attention_heads: int,
+    head_dim: int,
     num_kv_heads: int,
 ):
-
-    assert isinstance(v_proj_module, torch.nn.Linear), (
-        "Currently only supports linear v_proj modules."
-    )
-    head_dim = v_proj_module.out_features // num_kv_heads
     v_proj_weight_by_head, v_proj_bias_by_head = _split_v_proj_by_head(
         v_proj_module=v_proj_module,
         head_dim=head_dim,
@@ -400,10 +393,49 @@ def reconstruct_attn_output_vo_combined(
         o_proj_weight_by_head,  # [HEAD, HEAD_DIM, HIDDEN_DIM // HEAD]
     ).contiguous()  # [HEAD, HEAD, HIDDEN_DIM // HEAD]
 
+    bias = None
+    if v_proj_bias_by_head is not None:
+        bias = torch.einsum(
+            "he,heo->ho",
+            v_proj_bias_by_head,  # [HEAD, HEAD_DIM]
+            o_proj_weight_by_head,  # [HEAD, HEAD_DIM, HIDDEN_DIM // HEAD]
+        ).sum(dim=0)  # [HIDDEN_DIM // HEAD]
+
+    if o_proj_module.bias is not None:
+        assert isinstance(o_proj_module.bias, torch.Tensor)
+        if bias is not None:
+            bias = bias + o_proj_module.bias
+        else:
+            bias = o_proj_module.bias
+
+    return ov_combined_weight_by_head, bias
+
+
+def reconstruct_attn_output_vo_combined(
+    attn_weights: Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE],
+    hidden_states: Tensor[BATCH, SEQUENCE, HIDDEN_DIM],
+    v_proj_module: torch.nn.Module,
+    o_proj_module: torch.nn.Linear | Conv1D,
+    num_attention_heads: int,
+    num_kv_heads: int,
+):
+
+    assert isinstance(v_proj_module, torch.nn.Linear), (
+        "Currently only supports linear v_proj modules."
+    )
+    head_dim = v_proj_module.out_features // num_kv_heads
+    precomputed_ov_weights, precomputed_ov_bias = _precompute_ov_weights(
+        v_proj_module=v_proj_module,
+        o_proj_module=o_proj_module,
+        num_attention_heads=num_attention_heads,
+        head_dim=head_dim,
+        num_kv_heads=num_kv_heads,
+    )
+
     value = torch.einsum(
         "bid,hdo->bhio",
         hidden_states,  # [BATCH, SEQUENCE, HIDDEN_DIM]
-        ov_combined_weight_by_head,  # [HEAD, HEAD_DIM, HIDDEN_DIM // HEAD]
+        precomputed_ov_weights,  # [HEAD, HEAD_DIM, HIDDEN_DIM // HEAD]
     ).contiguous()  # [BATCH, HEAD, SEQUENCE, HIDDEN_DIM // HEAD]
 
     weighted_value = torch.einsum(
@@ -412,15 +444,7 @@ def reconstruct_attn_output_vo_combined(
         value,  # [BATCH, HEAD, SEQUENCE, HEAD_DIM]
     )
 
-    if v_proj_bias_by_head is not None:
-        weighted_value = weighted_value + torch.einsum(
-            "he,heo->ho",
-            v_proj_bias_by_head,  # [HEAD, HEAD_DIM]
-            o_proj_weight_by_head,  # [HEAD, HEAD_DIM, HIDDEN_DIM // HEAD]
-        ).sum(dim=0)  # [HIDDEN_DIM // HEAD]
-
-    if o_proj_module.bias is not None:
-        assert isinstance(o_proj_module.bias, torch.Tensor)
-        weighted_value = weighted_value + o_proj_module.bias
+    if precomputed_ov_bias is not None:
+        weighted_value = weighted_value + precomputed_ov_bias
 
     return weighted_value
