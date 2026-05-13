@@ -1,4 +1,5 @@
 import math
+from typing import Literal
 
 import torch
 from transformers.pytorch_utils import Conv1D
@@ -122,43 +123,83 @@ def reconstruct_attn_output(
     attn_weights: Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE],
     value: Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM],
     o_proj_module: torch.nn.Module,
-    head_wise: bool = False,
+    unfurl: Literal["none", "head_wise", "token_wise"] = "none",
     warnings_enabled: bool = True,
-) -> Tensor[BATCH, SEQUENCE, HIDDEN_DIM] | Tensor[BATCH, SEQUENCE, HEAD, HEAD_DIM]:
-    weighted_value: Tensor[BATCH, SEQUENCE, HEAD, HEAD_DIM] = (
-        torch.matmul(attn_weights, value).transpose(-2, -3).contiguous()
+) -> (
+    Tensor[BATCH, SEQUENCE, HIDDEN_DIM]
+    | Tensor[BATCH, SEQUENCE, HEAD, HEAD_DIM]
+    | Tensor[BATCH, SEQUENCE, HEAD, SEQUENCE, HIDDEN_DIM]
+):
+    assert unfurl in ["none", "head_wise", "token_wise"], (
+        "unfurl must be one of 'none', 'head_wise', or 'token_wise'"
     )
 
-    if head_wise:
+    batch_size, num_heads, sequence_length, head_dim = value.shape
+
+    # prepare weighted value for reconstruction
+    if unfurl in ["none", "head_wise"]:
+        weighted_value: Tensor[BATCH, SEQUENCE, HEAD, HEAD_DIM] = (
+            torch.matmul(attn_weights, value).transpose(-2, -3).contiguous()
+        )
+    elif unfurl == "token_wise":
+        weighted_value: Tensor[BATCH, SEQUENCE, HEAD, SEQUENCE, HEAD_DIM] = (
+            torch.einsum(
+                "bhij,bhjk->bhijk",
+                attn_weights,  # [BATCH, HEAD, SEQUENCE, SEQUENCE]
+                value,  # [BATCH, HEAD, SEQUENCE, HEAD_DIM]
+            )
+            .transpose(-3, -4)
+            .contiguous()
+        )  # [BATCH, SEQUENCE, HEAD, SEQUENCE, HEAD_DIM]
+
+    # prepare o_proj weight for reconstruction
+    if unfurl in ["head_wise", "token_wise"]:
         if isinstance(o_proj_module, torch.nn.Linear):
             o_proj_weight_by_head = o_proj_module.weight.T.view(
-                weighted_value.shape[2],  # head
-                weighted_value.shape[3],  # head_dim
+                num_heads,
+                head_dim,
                 -1,  # output_dim // num_heads
             )
         elif isinstance(o_proj_module, Conv1D):
             o_proj_weight_by_head = o_proj_module.weight.view(
-                weighted_value.shape[2],  # head
-                weighted_value.shape[3],  # head_dim
+                num_heads,
+                head_dim,
                 -1,  # output_dim // num_heads
             )
-        attn_out_reconstructed = torch.einsum(
-            "bshd,hdo->bsho",
-            weighted_value,
-            o_proj_weight_by_head,
-        )
-        if warnings_enabled:
-            print(
-                "Take sum over dim -2 (head) and add bias of o_proj to reconstruct full attn output."
-            )
-    else:
+
+    if unfurl == "none":
         concatenated_weighted_value_shape = (
-            weighted_value.shape[0],  # batch
-            weighted_value.shape[1],  # sequence
+            batch_size,
+            sequence_length,
             -1,  # heads * head_dim
         )
         concatenated_weighted_value = weighted_value.reshape(
             concatenated_weighted_value_shape
         ).contiguous()
         attn_out_reconstructed = o_proj_module(concatenated_weighted_value)
+    elif unfurl == "head_wise":
+        attn_out_reconstructed: Tensor[BATCH, SEQUENCE, HEAD, HIDDEN_DIM] = (
+            torch.einsum(
+                "bshd,hdo->bsho",
+                weighted_value,
+                o_proj_weight_by_head,
+            ).contiguous()
+        )
+        if warnings_enabled:
+            print(
+                "Take sum over dim -2 (head) and add bias of o_proj to reconstruct full attn output."
+            )
+    elif unfurl == "token_wise":
+        attn_out_reconstructed: Tensor[BATCH, SEQUENCE, HEAD, SEQUENCE, HIDDEN_DIM] = (
+            torch.einsum(
+                "bihjd,hdo->bihjo",
+                weighted_value,  # [BATCH, SEQUENCE, HEAD, SEQUENCE, HEAD_DIM]
+                o_proj_weight_by_head,  # [HEAD, HEAD_DIM, OUTPUT_DIM // HEAD]
+            ).contiguous()
+        )
+        if warnings_enabled:
+            print(
+                "Take sum over dim -2 (key), then over dim -2 (head) and add bias of o_proj to reconstruct full attn output."
+            )
+
     return attn_out_reconstructed
