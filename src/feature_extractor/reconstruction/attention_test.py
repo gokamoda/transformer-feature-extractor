@@ -95,8 +95,8 @@ def test_attention_reconstruction_requires_rope_embeddings():
 
 
 @pytest.mark.parametrize("model_name", SUPPORTED_MODELS)
-@pytest.mark.parametrize("head_wise", [False, True])
-def test_attention_reconstruction_accuracy(model_name, head_wise):
+@pytest.mark.parametrize("unfurl", ["none", "head_wise", "token_wise"])
+def test_attention_reconstruction_accuracy(model_name, unfurl):
     config = _create_feature_config()
     extractor = FeatureExtractor(model_name_or_path=model_name)
     extractor.configure(config)
@@ -130,19 +130,21 @@ def test_attention_reconstruction_accuracy(model_name, head_wise):
         attn_weights=attn_result.attn_weights,
         value=attn_result.value,
         o_proj_module=o_proj_module,
-        head_wise=head_wise,
+        unfurl=unfurl,
     )
-    if head_wise:
+    if unfurl == "head_wise":
         reconstructed_output = reconstructed_output.sum(dim=-2)
         if o_proj_module.bias is not None:
             reconstructed_output = reconstructed_output + o_proj_module.bias
-
-        atol = 1e-2
-        rtol = 1e-2
+        torch.testing.assert_close(
+            reconstructed_output, attn_result.output, atol=1e-2, rtol=1e-2
+        )
+    elif unfurl == "token_wise":
+        reconstructed_output = reconstructed_output.sum(dim=-2).sum(dim=-2)
+        if o_proj_module.bias is not None:
+            reconstructed_output = reconstructed_output + o_proj_module.bias
+        torch.testing.assert_close(
+            reconstructed_output, attn_result.output, atol=1e-2, rtol=1e-2
+        )
     else:
-        atol = None
-        rtol = None
-
-    torch.testing.assert_close(
-        reconstructed_output, attn_result.output, atol=atol, rtol=rtol
-    )
+        torch.testing.assert_close(reconstructed_output, attn_result.output)
