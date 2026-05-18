@@ -21,7 +21,6 @@ from feature_extractor.reconstruction.attention_dissection import (
     reconstruct_qkv_vectors,
 )
 from feature_extractor.reconstruction.rope import SimplifiedRoPEV1
-from feature_extractor.typing import Tensor
 
 
 def _create_feature_config():
@@ -250,7 +249,7 @@ def test_attention_weight_reconstruction_accuracy_qk_combined(model_name):
             )
 
         inv_freq = original_rope_module.inv_freq
-        assert isinstance(inv_freq, Tensor)
+        assert isinstance(inv_freq, torch.Tensor)
         simplified_rope_module = SimplifiedRoPEV1(
             inv_freq=inv_freq,
             attention_scaling=attn_scaling,

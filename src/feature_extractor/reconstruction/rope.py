@@ -4,7 +4,7 @@ from feature_extractor.typing import HEAD_DIM, SEQUENCE, Tensor
 
 
 class SimplifiedRoPEV1:
-    def __init__(self, inv_freq: Tensor, attention_scaling: float = 1.0):
+    def __init__(self, inv_freq: torch.Tensor, attention_scaling: float = 1.0):
         self.inv_freq = inv_freq  # = theta
         self.dtype = inv_freq.dtype
         self.device = self.inv_freq.device

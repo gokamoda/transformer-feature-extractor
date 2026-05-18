@@ -1,4 +1,5 @@
 import math
+from typing import Literal
 
 import torch
 
@@ -8,8 +9,24 @@ from feature_extractor.typing import BATCH, HEAD, HEAD_DIM, SEQUENCE, Tensor
 
 def create_causal_mask(
     sequence_length: int,
-):
-    mask = torch.triu(torch.ones(sequence_length, sequence_length), diagonal=1).bool()
+    mode: Literal["boolean", "additive"] = "boolean",
+    dtype: torch.dtype | None = None,
+) -> Tensor[SEQUENCE, SEQUENCE]:
+
+    if mode == "boolean":
+        mask = torch.triu(
+            torch.ones(sequence_length, sequence_length), diagonal=1
+        ).bool()
+    elif mode == "additive":
+        assert dtype is not None, "dtype must be specified for additive mask"
+        mask = torch.triu(
+            torch.full(
+                (sequence_length, sequence_length), torch.finfo(dtype).min, dtype=dtype
+            ),
+            diagonal=1,
+        )
+    else:
+        raise ValueError(f"Unsupported mode: {mode}")
     return mask
 
 
