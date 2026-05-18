@@ -1,13 +1,16 @@
+import math
 from typing import Literal
+
 import torch
 from transformers.pytorch_utils import Conv1D
-import math
+
+from feature_extractor.reconstruction.attention_weights import (
+    apply_mask,
+    create_causal_mask,
+)
 from feature_extractor.reconstruction.rope import SimplifiedRoPEV1
 from feature_extractor.typing import BATCH, HEAD, HEAD_DIM, HIDDEN_DIM, SEQUENCE, Tensor
-from feature_extractor.reconstruction.attention_weights import (
-    create_causal_mask,
-    apply_mask
-)
+
 
 def _split_o_proj_by_head(
     o_proj_module: torch.nn.Linear | Conv1D,
@@ -55,6 +58,7 @@ def _split_kv_proj_by_head(
         ).repeat_interleave(n_repeat, dim=0)
 
     return kv_proj_weight_by_head, kv_proj_bias_by_head
+
 
 def _split_q_proj_by_head(
     q_proj_module: torch.nn.Linear,
@@ -105,7 +109,9 @@ def reconstruct_qkv_vectors(
             num_attention_heads=num_attention_heads,
         )
     else:
-        assert num_kv_heads is not None, "num_kv_heads must be provided for k_proj and v_proj reconstruction"
+        assert num_kv_heads is not None, (
+            "num_kv_heads must be provided for k_proj and v_proj reconstruction"
+        )
         head_dim = qkv_proj_module.out_features // num_kv_heads
         proj_weight_by_head, proj_bias_by_head = _split_kv_proj_by_head(
             kv_proj_module=qkv_proj_module,
@@ -171,6 +177,7 @@ def _precompute_ov_weights(
 
     return ov_combined_weight_by_head, bias
 
+
 def _precompute_qk_weights(
     q_proj_module: torch.nn.Linear,
     k_proj_module: torch.nn.Linear,
@@ -180,8 +187,9 @@ def _precompute_qk_weights(
     rope_module: SimplifiedRoPEV1 | None = None,
     sequence_length: int | None = None,
 ) -> tuple[
-    Tensor[HEAD, HIDDEN_DIM, HEAD_DIM] | Tensor[HEAD, SEQUENCE, SEQUENCE, HEAD_DIM, HEAD_DIM],
-    Tensor[HEAD, HEAD_DIM] | Tensor |None
+    Tensor[HEAD, HIDDEN_DIM, HEAD_DIM]
+    | Tensor[HEAD, SEQUENCE, SEQUENCE, HEAD_DIM, HEAD_DIM],
+    Tensor[HEAD, HEAD_DIM] | Tensor | None,
 ]:
 
     q_proj_by_head_weight, q_proj_by_head_bias = _split_q_proj_by_head(
@@ -199,9 +207,11 @@ def _precompute_qk_weights(
 
     if rope_module is not None:
         assert sequence_length is not None
-        rope_matrix: Tensor[SEQUENCE, SEQUENCE, HEAD_DIM, HEAD_DIM] = rope_module.create_rope_matrix_full_sequence(
-            sequence_length=sequence_length
-        ).to(q_proj_by_head_weight.dtype)
+        rope_matrix: Tensor[SEQUENCE, SEQUENCE, HEAD_DIM, HEAD_DIM] = (
+            rope_module.create_rope_matrix_full_sequence(
+                sequence_length=sequence_length
+            ).to(q_proj_by_head_weight.dtype)
+        )
 
         # h: head
         # q: hidden_dim (query side)
@@ -211,21 +221,25 @@ def _precompute_qk_weights(
         # f: head_dim (key side)
         # k: hidden_dim (key side)
         qk_weight_combined = torch.einsum(
-            'hqe,ijef,hkf->hijqk', q_proj_by_head_weight, rope_matrix, k_proj_by_head_weight
+            "hqe,ijef,hkf->hijqk",
+            q_proj_by_head_weight,
+            rope_matrix,
+            k_proj_by_head_weight,
         )
-        
+
         if q_proj_by_head_bias is not None:
-            raise NotImplementedError("Bias combination for RoPE is not implemented yet.")
+            raise NotImplementedError(
+                "Bias combination for RoPE is not implemented yet."
+            )
         else:
             qk_bias_combined = None
     else:
-
         # h: head
         # q: hidden_dim (query side)
         # e: head_dim
         # k: hidden_dim (key side)
         qk_weight_combined = torch.einsum(
-            'hqe,hke->hqk', q_proj_by_head_weight, k_proj_by_head_weight
+            "hqe,hke->hqk", q_proj_by_head_weight, k_proj_by_head_weight
         )
 
         # h: head
@@ -233,13 +247,13 @@ def _precompute_qk_weights(
         # k: hidden_dim (key side)
         if q_proj_by_head_bias is not None:
             qk_bias_combined = torch.einsum(
-                'he,hke->hk', q_proj_by_head_bias, k_proj_by_head_weight
+                "he,hke->hk", q_proj_by_head_bias, k_proj_by_head_weight
             )
         else:
             qk_bias_combined = None
 
     return qk_weight_combined, qk_bias_combined
-    
+
 
 def reconstruct_attn_output_vo_combined(
     attn_weights: Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE],
@@ -301,17 +315,17 @@ def reconstruct_attn_weight_qk_combined_norope(
     # q: hidden_dim (query side)
     # k: hidden_dim (key side)
     reconstructed_attn_scores = torch.einsum(
-        'biq,hqk,bjk->bhij', hidden_states, qk_weight_combined, hidden_states
+        "biq,hqk,bjk->bhij", hidden_states, qk_weight_combined, hidden_states
     )
     if qk_bias_combined is not None:
         reconstructed_attn_scores = reconstructed_attn_scores + torch.einsum(
-            'hk,bjk->bhj', qk_bias_combined, hidden_states
+            "hk,bjk->bhj", qk_bias_combined, hidden_states
         ).unsqueeze(2)
 
     reconstructed_attn_scores = reconstructed_attn_scores / math.sqrt(head_dim)
 
     mask = create_causal_mask(
-        seq_len=reconstructed_attn_scores.shape[-1],
+        sequence_length=reconstructed_attn_scores.shape[-1],
     )
     masked_reconstructed_attn_scores = apply_mask(
         attn_weights=reconstructed_attn_scores,
@@ -350,17 +364,17 @@ def reconstruct_attn_weight_qk_combined_with_rope(
     # q: hidden_dim (query side)
     # k: hidden_dim (key side)
     reconstructed_attn_scores = torch.einsum(
-        'biq,hijqk,bjk->bhij', hidden_states, qk_weight_combined, hidden_states
+        "biq,hijqk,bjk->bhij", hidden_states, qk_weight_combined, hidden_states
     )
     if qk_bias_combined is not None:
         reconstructed_attn_scores = reconstructed_attn_scores + torch.einsum(
-            'hk,bjk->bhj', qk_bias_combined, hidden_states
+            "hk,bjk->bhj", qk_bias_combined, hidden_states
         ).unsqueeze(2)
 
     reconstructed_attn_scores = reconstructed_attn_scores / math.sqrt(head_dim)
 
     mask = create_causal_mask(
-        seq_len=reconstructed_attn_scores.shape[-1],
+        sequence_length=reconstructed_attn_scores.shape[-1],
     )
     masked_reconstructed_attn_scores = apply_mask(
         attn_weights=reconstructed_attn_scores,

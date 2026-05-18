@@ -1,4 +1,5 @@
 from typing import Literal
+
 import torch
 from transformers import PreTrainedModel
 
@@ -31,7 +32,7 @@ def get_qkv_proj_module_gpt2(
     model_module = getattr(model, architecture.model_field)
     layer_module = getattr(model_module, architecture.layers_field)[layer_index]
     attn_module = getattr(layer_module, architecture.attn_field)
-    
+
     assert architecture.attn_qkv_proj_field is not None, (
         "Must specify attn_qkv_proj_field in architecture when using conv1d qkv implementation."
     )
@@ -56,14 +57,22 @@ def get_qkv_proj_module_gpt2(
 
     proj_module.weight = torch.nn.Parameter(
         qkv_proj_module.weight[
-            :, weight_order[module] * out_features : (weight_order[module] + 1) * out_features
-        ].clone().T.contiguous()
+            :,
+            weight_order[module] * out_features : (weight_order[module] + 1)
+            * out_features,
+        ]
+        .clone()
+        .T.contiguous()
     )
     if has_bias:
         proj_module.bias = torch.nn.Parameter(
-            qkv_proj_module.bias[weight_order[module] * out_features : (weight_order[module] + 1) * out_features]
+            qkv_proj_module.bias[
+                weight_order[module] * out_features : (weight_order[module] + 1)
+                * out_features
+            ]
         )
     return proj_module
+
 
 def get_qkv_proj_module_independent_linear(
     architecture: BaseModelArchitecture,
@@ -91,7 +100,9 @@ def get_qkv_proj_module_independent_linear(
         )
         return getattr(attn_module, architecture.attn_v_proj_field)
     else:
-        raise ValueError(f"Invalid module name: {module}. Must be one of 'q_proj', 'k_proj', 'v_proj'.")
+        raise ValueError(
+            f"Invalid module name: {module}. Must be one of 'q_proj', 'k_proj', 'v_proj'."
+        )
 
 
 def get_o_proj_module(
@@ -110,7 +121,7 @@ def _get_qkv_proj_module(
     architecture: BaseModelArchitecture,
     layer_index: int,
     model: PreTrainedModel,
-    module: Literal["q_proj", "k_proj", "v_proj"],      
+    module: Literal["q_proj", "k_proj", "v_proj"],
 ):
     if architecture.attn_qkv_implementation == QKV_IMPLEMENTATION_INDEPENDENT_LINEAR:
         return get_qkv_proj_module_independent_linear(
@@ -127,7 +138,9 @@ def _get_qkv_proj_module(
             module=module,
         )
     else:
-        raise ValueError(f"Unsupported attn_qkv_implementation: {architecture.attn_qkv_implementation}")
+        raise ValueError(
+            f"Unsupported attn_qkv_implementation: {architecture.attn_qkv_implementation}"
+        )
 
 
 def get_v_proj_module(
@@ -142,6 +155,7 @@ def get_v_proj_module(
         module="v_proj",
     )
 
+
 def get_q_proj_module(
     architecture: BaseModelArchitecture,
     layer_index: int,
@@ -153,6 +167,7 @@ def get_q_proj_module(
         model=model,
         module="q_proj",
     )
+
 
 def get_k_proj_module(
     architecture: BaseModelArchitecture,
@@ -172,4 +187,7 @@ def get_rope_module(
     model: PreTrainedModel,
 ) -> torch.nn.Module:
     model_module = getattr(model, architecture.model_field)
+    assert architecture.rope_field is not None, (
+        "Architecture does not specify a rope field, but attn_use_rope is True."
+    )
     return getattr(model_module, architecture.rope_field)

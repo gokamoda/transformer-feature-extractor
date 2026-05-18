@@ -5,10 +5,11 @@ import torch
 from feature_extractor.models import BaseModelArchitecture
 from feature_extractor.typing import BATCH, HEAD, HEAD_DIM, SEQUENCE, Tensor
 
+
 def create_causal_mask(
-    seq_len: int,
+    sequence_length: int,
 ):
-    mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1).bool()
+    mask = torch.triu(torch.ones(sequence_length, sequence_length), diagonal=1).bool()
     return mask
 
 
@@ -17,7 +18,7 @@ def apply_mask(
     mask: Tensor[SEQUENCE, SEQUENCE],
     mask_value: float = float("nan"),
 ):
-    seq_len = attn_weights.shape[-1]
+    attn_weights.shape[-1]
     mask = mask.to(attn_weights.device)
     attn_weights = attn_weights.masked_fill(mask, mask_value)
     return attn_weights
@@ -68,6 +69,7 @@ def _apply_rope(
     query = (query * cos) + (_rotate_half(query) * sin)
     key = (key * cos) + (_rotate_half(key) * sin)
     return query, key
+
 
 @torch.inference_mode()
 def reconstruct_attention_weights(
