@@ -9,7 +9,7 @@ from feature_extractor.models import (
     load_causal_model,
     load_tokenizer,
 )
-from feature_extractor.models.architecture import get_hidden_size
+from feature_extractor.models.get_config import get_hidden_size
 
 
 @pytest.mark.parametrize("model_name", SUPPORTED_MODELS)

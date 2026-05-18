@@ -11,7 +11,7 @@ from feature_extractor.models import (
     get_model_architecture,
     load_tokenizer,
 )
-from feature_extractor.models.architecture import get_num_layers
+from feature_extractor.models.get_config import get_num_layers
 
 
 @pytest.mark.parametrize("model_name", SUPPORTED_MODELS)

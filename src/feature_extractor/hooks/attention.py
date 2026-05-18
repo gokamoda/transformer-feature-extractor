@@ -10,6 +10,8 @@ from feature_extractor.models import BaseModelArchitecture
 from feature_extractor.models.architecture import (
     QKV_IMPLEMENTATION_CONV1D,
     QKV_IMPLEMENTATION_INDEPENDENT_LINEAR,
+)
+from feature_extractor.models.get_config import (
     get_num_attn_heads,
     get_num_kv_heads,
     get_num_layers,

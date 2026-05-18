@@ -12,7 +12,17 @@ from transformers import (
 
 from feature_extractor.logger import init_logging
 
-from .architecture import BaseModelArchitecture, get_num_layers
+from .architecture import BaseModelArchitecture
+from .get_config import (
+    get_hidden_size,
+    get_hidden_size_per_head,
+    get_intermediate_size,
+    get_kv_hidden_size,
+    get_num_attn_heads,
+    get_num_kv_heads,
+    get_num_layers,
+)
+from .get_modules import get_o_proj_module, get_pre_attn_norm_module, get_v_proj_module
 from .gpt2 import GPT2Architecture
 from .llama import LlamaArchitecture
 
@@ -31,6 +41,15 @@ __all__ = [
     "get_num_layers",
     "BaseModelArchitecture",
     "resolve_model_architecture",
+    "get_num_attn_heads",
+    "get_num_kv_heads",
+    "get_hidden_size",
+    "get_hidden_size_per_head",
+    "get_kv_hidden_size",
+    "get_intermediate_size",
+    "get_pre_attn_norm_module",
+    "get_v_proj_module",
+    "get_o_proj_module",
 ]
 
 

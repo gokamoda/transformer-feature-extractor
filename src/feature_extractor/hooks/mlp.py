@@ -6,7 +6,7 @@ from feature_extractor.configs import FeatureConfig
 from feature_extractor.configs.schema import MLPFeatureSpec
 from feature_extractor.hooks.base import Hook
 from feature_extractor.models import BaseModelArchitecture
-from feature_extractor.models.architecture import get_num_layers
+from feature_extractor.models.get_config import get_num_layers
 from feature_extractor.typing import BATCH, HIDDEN_DIM, MLP_DIM, SEQUENCE, Tensor
 
 from .base import AbstractBatchResult

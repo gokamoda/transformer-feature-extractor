@@ -12,6 +12,8 @@ from feature_extractor.models import (
 from feature_extractor.models.architecture import (
     QKV_IMPLEMENTATION_CONV1D,
     QKV_IMPLEMENTATION_INDEPENDENT_LINEAR,
+)
+from feature_extractor.models.get_config import (
     get_hidden_size,
     get_hidden_size_per_head,
     get_kv_hidden_size,

@@ -6,7 +6,7 @@ from feature_extractor.configs.schema import FeatureConfig
 from feature_extractor.data.dataset import TextDataEntry, TextDataset, create_collator
 from feature_extractor.extractor.extractor import FeatureExtractor
 from feature_extractor.models import SUPPORTED_MODELS
-from feature_extractor.models.architecture import (
+from feature_extractor.models.get_config import (
     get_hidden_size,
     get_hidden_size_per_head,
     get_num_attn_heads,
