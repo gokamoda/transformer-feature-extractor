@@ -289,11 +289,11 @@ class QKVHookManager:
             key = None
             value = None
 
+            num_attn_heads = get_num_attn_heads(
+                self.model_config, self.model_architecture
+            )
             if _layer_index in self.query_layer_indices:
                 query = qkv_output[:, :, :hidden_dim]
-                num_attn_heads = get_num_attn_heads(
-                    self.model_config, self.model_architecture
-                )
                 query = query.view(
                     query.shape[0],
                     query.shape[1],

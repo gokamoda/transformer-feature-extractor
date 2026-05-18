@@ -5,6 +5,23 @@ import torch
 from feature_extractor.models import BaseModelArchitecture
 from feature_extractor.typing import BATCH, HEAD, HEAD_DIM, SEQUENCE, Tensor
 
+def create_causal_mask(
+    seq_len: int,
+):
+    mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1).bool()
+    return mask
+
+
+def apply_mask(
+    attn_weights: Tensor[SEQUENCE, SEQUENCE],
+    mask: Tensor[SEQUENCE, SEQUENCE],
+    mask_value: float = float("nan"),
+):
+    seq_len = attn_weights.shape[-1]
+    mask = mask.to(attn_weights.device)
+    attn_weights = attn_weights.masked_fill(mask, mask_value)
+    return attn_weights
+
 
 def _rotate_half(values: torch.Tensor) -> torch.Tensor:
     half = values.shape[-1] // 2
@@ -40,8 +57,8 @@ def _reshape_rope_embeddings(
 
 
 def _apply_rope(
-    query: torch.Tensor,
-    key: torch.Tensor,
+    query: Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM],
+    key: Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM],
     position_embeddings: tuple[torch.Tensor, torch.Tensor],
 ) -> tuple[torch.Tensor, torch.Tensor]:
     cos, sin = position_embeddings
@@ -52,7 +69,7 @@ def _apply_rope(
     key = (key * cos) + (_rotate_half(key) * sin)
     return query, key
 
-
+@torch.inference_mode()
 def reconstruct_attention_weights(
     query: Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM],
     key: Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM],
