@@ -149,6 +149,7 @@ class FeatureExtractor:
                     ),
                     pad_token_id=self.tokenizer.pad_token_id,
                     max_new_tokens=1,
+                    max_length=None,
                 )
             except StopForwardError:
                 # Forward hook signalled that all required features were collected;
