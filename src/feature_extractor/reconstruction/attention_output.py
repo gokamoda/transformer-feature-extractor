@@ -44,13 +44,17 @@ def reconstruct_attn_output(
             .contiguous()
         )  # [BATCH, SEQUENCE, HEAD, SEQUENCE, HEAD_DIM]
 
+    device = o_proj_module.weight.device
+    weighted_value = weighted_value.to(device)
     # prepare o_proj weight for reconstruction
     if unfurl in ["head_wise", "token_wise"]:
         o_proj_weight_by_head = _split_o_proj_by_head(
             o_proj_module=o_proj_module,
             head_dim=head_dim,
             num_attention_heads=num_heads,
-        )
+        ).to(device)
+
+
 
     if unfurl == "none":
         concatenated_weighted_value_shape = (

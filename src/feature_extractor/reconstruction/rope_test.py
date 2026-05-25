@@ -45,6 +45,10 @@ def test_rope_reconstruction(model_name):
                     sequence_length=int(sequence_length)
                 )
             )
+            device = cos_simplified.device
+            cos_original = cos_original.to(device)
+            sin_original = sin_original.to(device)
+
             assert torch.allclose(cos_simplified, cos_original[i, -sequence_length:])
             assert torch.allclose(sin_simplified, sin_original[i, -sequence_length:])
 
@@ -95,6 +99,10 @@ def test_rope_matrix_reconstruction(model_name):
         rope_matrix = simplified_rope_module.create_rope_matrix_full_sequence(
             sequence_length=sequence_length
         )
+        device = rope_matrix.device
+        query = query.to(device)
+        key = key.to(device)
+
         naive_scores = torch.einsum(
             "bhqd,qkde,bhek->bhqk", query, rope_matrix, key.transpose(-2, -1)
         )

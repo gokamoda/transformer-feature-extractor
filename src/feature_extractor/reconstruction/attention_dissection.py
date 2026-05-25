@@ -1,3 +1,4 @@
+import gc
 import math
 from typing import Literal
 
@@ -46,7 +47,6 @@ def _split_kv_proj_by_head(
             head_dim,
         )
         .transpose(0, 1)
-        .contiguous()
     )  # [HEAD, HIDDEN_DIM, HEAD_DIM]
     kv_proj_weight_by_head = kv_proj_weight_by_head.repeat_interleave(n_repeat, dim=0)
 
@@ -76,7 +76,6 @@ def _split_q_proj_by_head(
             head_dim,
         )
         .transpose(0, 1)
-        .contiguous()
     )  # [HEAD, HIDDEN_DIM, HEAD_DIM]
 
     q_proj_bias_by_head: Tensor[HEAD, HEAD_DIM] | None = None
@@ -197,6 +196,7 @@ def _precompute_qk_weights(
         head_dim=head_dim,
         num_attention_heads=num_attention_heads,
     )
+    num_heads, hidden_dim, _ = q_proj_by_head_weight.shape
 
     k_proj_by_head_weight, _ = _split_kv_proj_by_head(
         kv_proj_module=k_proj_module,
@@ -220,12 +220,27 @@ def _precompute_qk_weights(
         # j: sequence_length (key side)
         # f: head_dim (key side)
         # k: hidden_dim (key side)
-        qk_weight_combined = torch.einsum(
-            "hqe,ijef,hkf->hijqk",
-            q_proj_by_head_weight,
-            rope_matrix,
-            k_proj_by_head_weight,
+        rope_matrix = rope_matrix.to(q_proj_by_head_weight.device)
+        k_proj_by_head_weight = k_proj_by_head_weight.to(q_proj_by_head_weight.device)
+        qk_weight_combined = torch.empty(
+            (
+                q_proj_by_head_weight.shape[0], # head
+                sequence_length,
+                sequence_length,
+                hidden_dim,
+                hidden_dim,
+            ),
+            dtype=q_proj_by_head_weight.dtype,
+            device=q_proj_by_head_weight.device,
         )
+        for h in range(q_proj_by_head_weight.shape[0]):
+            qk_weight_combined[h] = torch.einsum(
+                "qe,ijef,kf->ijqk",
+                q_proj_by_head_weight[h],
+                rope_matrix,
+                k_proj_by_head_weight[h],
+            )
+
 
         if q_proj_by_head_bias is not None:
             raise NotImplementedError(
@@ -282,6 +297,7 @@ def reconstruct_attn_output_vo_combined(
         precomputed_ov_weights,  # [HEAD, HEAD_DIM, HIDDEN_DIM // HEAD]
     ).contiguous()  # [BATCH, HEAD, SEQUENCE, HIDDEN_DIM // HEAD]
 
+    attn_weights = attn_weights.to(value.device)
     weighted_value = torch.einsum(
         "bhij,bhjo->bio",
         attn_weights,  # [BATCH, HEAD, SEQUENCE, SEQUENCE]
@@ -340,32 +356,35 @@ def reconstruct_attn_weight_qk_combined_norope(
 
 def reconstruct_attn_weight_qk_combined_with_rope(
     hidden_states: Tensor[BATCH, SEQUENCE, HIDDEN_DIM],
-    q_proj_module: torch.nn.Linear,
-    k_proj_module: torch.nn.Linear,
-    rope_module: SimplifiedRoPEV1,
-    num_attention_heads: int,
+    qk_weight_combined: Tensor[HEAD, SEQUENCE, SEQUENCE, HIDDEN_DIM, HIDDEN_DIM],
+    qk_bias_combined: Tensor[HEAD, SEQUENCE, SEQUENCE, HIDDEN_DIM] | None,
     head_dim: int,
-    num_kv_heads: int,
 ):
-    qk_weight_combined: Tensor[HEAD, SEQUENCE, SEQUENCE, HIDDEN_DIM, HIDDEN_DIM]
-    qk_bias_combined: Tensor[HEAD, SEQUENCE, SEQUENCE, HIDDEN_DIM] | None
-    qk_weight_combined, qk_bias_combined = _precompute_qk_weights(
-        q_proj_module=q_proj_module,
-        k_proj_module=k_proj_module,
-        num_attention_heads=num_attention_heads,
-        head_dim=head_dim,
-        num_kv_heads=num_kv_heads,
-        rope_module=rope_module,
-        sequence_length=hidden_states.shape[1],
-    )
     # b: batch
     # i: sequence_length (query side)
     # j: sequence_length (key side)
     # q: hidden_dim (query side)
     # k: hidden_dim (key side)
-    reconstructed_attn_scores = torch.einsum(
-        "biq,hijqk,bjk->bhij", hidden_states, qk_weight_combined, hidden_states
+    qk_weight_combined = qk_weight_combined.to(hidden_states.device)
+    reconstructed_attn_scores = torch.empty(
+        (
+            hidden_states.shape[0],  # batch
+            qk_weight_combined.shape[0],  # head
+            qk_weight_combined.shape[1],  # sequence_length (query side)
+            qk_weight_combined.shape[2],  # sequence_length (key side)
+        ),
+        dtype=hidden_states.dtype,
+        device=hidden_states.device,
     )
+    # for loop for memory efficiency
+    for b in range(hidden_states.shape[0]): # batch
+        for h in range(qk_weight_combined.shape[0]): # head
+            reconstructed_attn_scores[b, h] = torch.einsum(
+                "iq,ijqk,jk->ij",
+                hidden_states[b],  # [SEQUENCE, HIDDEN_DIM]
+                qk_weight_combined[h],  # [SEQUENCE, SEQUENCE, HIDDEN_DIM, HIDDEN_DIM]
+                hidden_states[b],  # [SEQUENCE, HIDDEN_DIM]
+            )
     if qk_bias_combined is not None:
         reconstructed_attn_scores = reconstructed_attn_scores + torch.einsum(
             "hk,bjk->bhj", qk_bias_combined, hidden_states

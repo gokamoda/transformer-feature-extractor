@@ -25,10 +25,11 @@ from .get_config import (
 from .get_modules import get_o_proj_module, get_pre_attn_norm_module, get_v_proj_module
 from .gpt2 import GPT2Architecture
 from .llama import LlamaArchitecture
+from .load import load_causal_model, load_tokenizer
 
 SUPPORTED_MODELS = [
     "openai-community/gpt2",
-    # "meta-llama/Llama-2-7b-hf",
+    "meta-llama/Llama-2-7b-hf",
     "meta-llama/Llama-3.2-1B",
     "HuggingFaceTB/SmolLM2-135M",
 ]
@@ -78,36 +79,7 @@ ARCHITECTURE_REGISTRY: tuple[ArchitectureRegistryEntry, ...] = (
 )
 
 
-def load_causal_model(
-    model_name_or_path: str, device: str | None = None
-) -> PreTrainedModel:
-    if device is None:  # auto
-        if torch.cuda.is_available():
-            if torch.cuda.device_count() > 1:
-                model = AutoModelForCausalLM.from_pretrained(
-                    model_name_or_path, device_map="auto"
-                )
-            else:
-                model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
-                model = model.to("cuda")  # ty: ignore
-        else:
-            model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
-    else:
-        model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
-        model = model.to(device)  # type: ignore
 
-    model.eval()
-    logger.info(f"Model loaded on device: {model.device}")
-    return model
-
-
-def load_tokenizer(model_name_or_path: str) -> TokenizersBackend:
-    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, padding_side="left")
-    assert isinstance(tokenizer, TokenizersBackend), (
-        f"Expected tokenizer to be a TokenizersBackend, got {type(tokenizer)}"
-    )
-    tokenizer.pad_token_id = tokenizer.eos_token_id
-    return tokenizer
 
 
 def resolve_model_architecture(model_class_name: str) -> BaseModelArchitecture:

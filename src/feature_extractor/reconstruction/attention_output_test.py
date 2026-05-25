@@ -75,18 +75,18 @@ def test_attention_reconstruction_accuracy(model_name, unfurl):
         value=attn_result.value,
         o_proj_module=o_proj_module,
         unfurl=unfurl,
-    )
+    ).detach().cpu()
     if unfurl == "head_wise":
         reconstructed_output = reconstructed_output.sum(dim=-2)
         if o_proj_module.bias is not None:
-            reconstructed_output = reconstructed_output + o_proj_module.bias
+            reconstructed_output = reconstructed_output + o_proj_module.bias.to(reconstructed_output.device)
         torch.testing.assert_close(
             reconstructed_output, attn_result.output, atol=1e-2, rtol=1e-2
         )
     elif unfurl == "token_wise":
         reconstructed_output = reconstructed_output.sum(dim=-2).sum(dim=-2)
         if o_proj_module.bias is not None:
-            reconstructed_output = reconstructed_output + o_proj_module.bias
+            reconstructed_output = reconstructed_output + o_proj_module.bias.to(reconstructed_output.device)
         torch.testing.assert_close(
             reconstructed_output, attn_result.output, atol=2e-2, rtol=2e-2
         )

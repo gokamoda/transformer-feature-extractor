@@ -55,6 +55,7 @@ def test_mlp_hook(model_name):
     tokenizer = load_tokenizer(model_name)
 
     inputs = tokenizer("Hello, world!", return_tensors="pt")
+    inputs = inputs.to(model.device)
     with torch.no_grad():
         model(
             **inputs,
