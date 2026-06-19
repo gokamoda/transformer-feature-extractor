@@ -94,7 +94,7 @@ def reconstruct_attention_weights(
     key: Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM],
     attention_mask: torch.Tensor | None,
     position_embeddings: tuple[torch.Tensor, torch.Tensor] | None,
-    architecture: BaseModelArchitecture,
+    attn_use_rope: bool,
     before_softmax=False,
 ) -> Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE]:
     """Reconstruct attention weights, matching GPT2 (SDPA) and Llama (RoPE) behavior.
@@ -103,9 +103,8 @@ def reconstruct_attention_weights(
     for numerical stability. We mirror that behavior and cast back to the query
     dtype to match the model output.
     """
-    use_rope = architecture.attn_use_rope
 
-    if use_rope:
+    if attn_use_rope:
         if position_embeddings is None:
             raise ValueError("RoPE-based architectures require position embeddings.")
         query, key = _apply_rope(query, key, position_embeddings)
