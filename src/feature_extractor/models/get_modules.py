@@ -19,7 +19,7 @@ def get_pre_attn_norm_module(
     layer_index: int,
     model: PreTrainedModel | None = None,
     model_name: str | None = None,
-    device: str | None = None
+    device: str | None = None,
 ) -> torch.nn.Module:
     assert architecture.pre_attn_ln_field is not None, (
         "Architecture does not specify a pre-attention layer norm field."
@@ -31,11 +31,14 @@ def get_pre_attn_norm_module(
         load_model_inside_function = False
 
     if load_model_inside_function:
+        assert model_name is not None, "model_name must be provided if model is None"
         model = load_causal_model(model_name, device=device)
 
     model_module = getattr(model, architecture.model_field)
     layer_module = getattr(model_module, architecture.layers_field)[layer_index]
-    pre_attn_norm_module = copy.deepcopy(getattr(layer_module, architecture.pre_attn_ln_field))
+    pre_attn_norm_module = copy.deepcopy(
+        getattr(layer_module, architecture.pre_attn_ln_field)
+    )
 
     if load_model_inside_function:
         del layer_module
@@ -53,7 +56,7 @@ def get_qkv_proj_module_gpt2(
     modules: list[Literal["q_proj", "k_proj", "v_proj"]],
     model: PreTrainedModel | None = None,
     model_name: str | None = None,
-    device: str | None = None
+    device: str | None = None,
 ):
     if model is None:
         load_model_inside_function = True
@@ -61,6 +64,7 @@ def get_qkv_proj_module_gpt2(
         load_model_inside_function = False
 
     if load_model_inside_function:
+        assert model_name is not None, "model_name must be provided if model is None"
         model = load_causal_model(model_name, device=device)
 
     model_module = getattr(model, architecture.model_field)
@@ -72,7 +76,9 @@ def get_qkv_proj_module_gpt2(
     )
 
     weight_order = {"q_proj": 0, "k_proj": 1, "v_proj": 2}
-    qkv_proj_module: torch.nn.Module = getattr(attn_module, architecture.attn_qkv_proj_field)
+    qkv_proj_module: torch.nn.Module = getattr(
+        attn_module, architecture.attn_qkv_proj_field
+    )
     in_features = qkv_proj_module.nx
     out_features = (
         qkv_proj_module.nf // 3
@@ -93,7 +99,9 @@ def get_qkv_proj_module_gpt2(
         proj_module.weight = torch.nn.Parameter(
             qkv_proj_module.weight[
                 :,
-                weight_order[module_name] * out_features : (weight_order[module_name] + 1)
+                weight_order[module_name] * out_features : (
+                    weight_order[module_name] + 1
+                )
                 * out_features,
             ]
             .clone()
@@ -102,9 +110,13 @@ def get_qkv_proj_module_gpt2(
         if has_bias:
             proj_module.bias = torch.nn.Parameter(
                 qkv_proj_module.bias[
-                    weight_order[module_name] * out_features : (weight_order[module_name] + 1)
+                    weight_order[module_name] * out_features : (
+                        weight_order[module_name] + 1
+                    )
                     * out_features
-                ].clone().contiguous()
+                ]
+                .clone()
+                .contiguous()
             )
         retrieved_modules[module_name] = proj_module
 
@@ -116,7 +128,6 @@ def get_qkv_proj_module_gpt2(
         gc.collect()
         torch.cuda.empty_cache()
 
-
     return retrieved_modules
 
 
@@ -126,7 +137,7 @@ def get_qkv_proj_module_independent_linear(
     modules: list[Literal["q_proj", "k_proj", "v_proj"]],
     model: PreTrainedModel | None = None,
     model_name: str | None = None,
-    device: str | None = None
+    device: str | None = None,
 ):
     if model is None:
         load_model_inside_function = True
@@ -134,8 +145,8 @@ def get_qkv_proj_module_independent_linear(
         load_model_inside_function = False
 
     if load_model_inside_function:
+        assert model_name is not None, "model_name must be provided if model is None"
         model = load_causal_model(model_name, device=device)
-
 
     model_module = getattr(model, architecture.model_field)
     layer_module = getattr(model_module, architecture.layers_field)[layer_index]
@@ -147,19 +158,25 @@ def get_qkv_proj_module_independent_linear(
         assert architecture.attn_q_proj_field is not None, (
             "Architecture does not specify attn_q_proj_field."
         )
-        retrieved_modules["q_proj"] = copy.deepcopy(getattr(attn_module, architecture.attn_q_proj_field))
+        retrieved_modules["q_proj"] = copy.deepcopy(
+            getattr(attn_module, architecture.attn_q_proj_field)
+        )
 
     if "k_proj" in modules:
         assert architecture.attn_k_proj_field is not None, (
             "Architecture does not specify attn_k_proj_field."
         )
-        retrieved_modules["k_proj"] = copy.deepcopy(getattr(attn_module, architecture.attn_k_proj_field))
+        retrieved_modules["k_proj"] = copy.deepcopy(
+            getattr(attn_module, architecture.attn_k_proj_field)
+        )
 
     if "v_proj" in modules:
         assert architecture.attn_v_proj_field is not None, (
             "Architecture does not specify attn_v_proj_field."
         )
-        retrieved_modules["v_proj"] = copy.deepcopy(getattr(attn_module, architecture.attn_v_proj_field))
+        retrieved_modules["v_proj"] = copy.deepcopy(
+            getattr(attn_module, architecture.attn_v_proj_field)
+        )
     if load_model_inside_function:
         del attn_module
         del layer_module
@@ -167,7 +184,6 @@ def get_qkv_proj_module_independent_linear(
         del model
         gc.collect()
         torch.cuda.empty_cache()
-
 
     return retrieved_modules
 
@@ -184,8 +200,8 @@ def get_o_proj_module(
         load_model_inside_function = False
 
     if load_model_inside_function:
+        assert model_name is not None, "model_name must be provided if model is None"
         model = load_causal_model(model_name)
-
 
     model_module = getattr(model, architecture.model_field)
     layer_module = getattr(model_module, architecture.layers_field)[layer_index]
@@ -203,7 +219,6 @@ def get_o_proj_module(
         torch.cuda.empty_cache()
     print(torch.cuda.memory_allocated() / 1024**2, "MB allocated")
     print(torch.cuda.memory_reserved() / 1024**2, "MB reserved")
-
 
     return o_proj_module
 
@@ -249,7 +264,7 @@ def get_v_proj_module(
         model=model,
         model_name=model_name,
         modules=["v_proj"],
-    )['v_proj']
+    )["v_proj"]
 
 
 def get_q_proj_module(
@@ -264,7 +279,7 @@ def get_q_proj_module(
         model=model,
         model_name=model_name,
         modules=["q_proj"],
-    )['q_proj']
+    )["q_proj"]
 
 
 def get_k_proj_module(
@@ -279,7 +294,7 @@ def get_k_proj_module(
         model=model,
         model_name=model_name,
         modules=["k_proj"],
-    )['k_proj']
+    )["k_proj"]
 
 
 def get_rope_module(
@@ -287,13 +302,14 @@ def get_rope_module(
     model: PreTrainedModel | None = None,
     model_name: str | None = None,
 ) -> torch.nn.Module:
-    
+
     if model is None:
         load_model_inside_function = True
     else:
         load_model_inside_function = False
 
     if load_model_inside_function:
+        assert model_name is not None, "model_name must be provided if model is None"
         model = load_causal_model(model_name)
 
     model_module = getattr(model, architecture.model_field)

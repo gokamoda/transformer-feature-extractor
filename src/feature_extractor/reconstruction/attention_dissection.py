@@ -1,4 +1,3 @@
-import gc
 import math
 from typing import Literal
 
@@ -45,8 +44,7 @@ def _split_kv_proj_by_head(
             -1,  # output_dim // num_heads
             num_kv_heads,
             head_dim,
-        )
-        .transpose(0, 1)
+        ).transpose(0, 1)
     )  # [HEAD, HIDDEN_DIM, HEAD_DIM]
     kv_proj_weight_by_head = kv_proj_weight_by_head.repeat_interleave(n_repeat, dim=0)
 
@@ -74,8 +72,7 @@ def _split_q_proj_by_head(
             -1,  # output_dim // num_heads
             num_attention_heads,
             head_dim,
-        )
-        .transpose(0, 1)
+        ).transpose(0, 1)
     )  # [HEAD, HIDDEN_DIM, HEAD_DIM]
 
     q_proj_bias_by_head: Tensor[HEAD, HEAD_DIM] | None = None
@@ -224,7 +221,7 @@ def _precompute_qk_weights(
         k_proj_by_head_weight = k_proj_by_head_weight.to(q_proj_by_head_weight.device)
         qk_weight_combined = torch.empty(
             (
-                q_proj_by_head_weight.shape[0], # head
+                q_proj_by_head_weight.shape[0],  # head
                 sequence_length,
                 sequence_length,
                 hidden_dim,
@@ -240,7 +237,6 @@ def _precompute_qk_weights(
                 rope_matrix,
                 k_proj_by_head_weight[h],
             )
-
 
         if q_proj_by_head_bias is not None:
             raise NotImplementedError(
@@ -377,8 +373,8 @@ def reconstruct_attn_weight_qk_combined_with_rope(
         device=hidden_states.device,
     )
     # for loop for memory efficiency
-    for b in range(hidden_states.shape[0]): # batch
-        for h in range(qk_weight_combined.shape[0]): # head
+    for b in range(hidden_states.shape[0]):  # batch
+        for h in range(qk_weight_combined.shape[0]):  # head
             reconstructed_attn_scores[b, h] = torch.einsum(
                 "iq,ijqk,jk->ij",
                 hidden_states[b],  # [SEQUENCE, HIDDEN_DIM]

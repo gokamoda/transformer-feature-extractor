@@ -54,8 +54,6 @@ def reconstruct_attn_output(
             num_attention_heads=num_heads,
         ).to(device)
 
-
-
     if unfurl == "none":
         concatenated_weighted_value_shape = (
             batch_size,

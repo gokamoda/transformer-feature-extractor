@@ -10,6 +10,7 @@ from feature_extractor.logger import init_logging
 
 logger = init_logging(__name__)
 
+
 def load_causal_model(
     model_name_or_path: str, device: str | None = None
 ) -> PreTrainedModel:
@@ -39,4 +40,8 @@ def load_tokenizer(model_name_or_path: str) -> TokenizersBackend:
         f"Expected tokenizer to be a TokenizersBackend, got {type(tokenizer)}"
     )
     tokenizer.pad_token_id = tokenizer.eos_token_id
+
+    if "gpt2" in model_name_or_path:
+        tokenizer.add_bos_token = True
+
     return tokenizer

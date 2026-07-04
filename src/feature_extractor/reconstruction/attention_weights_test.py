@@ -6,7 +6,6 @@ from feature_extractor.configs.schema import FeatureConfig
 from feature_extractor.data.dataset import TextDataEntry, TextDataset, create_collator
 from feature_extractor.extractor.extractor import FeatureExtractor
 from feature_extractor.models import SUPPORTED_MODELS
-from feature_extractor.models.llama import LlamaArchitecture
 from feature_extractor.reconstruction.attention_weights import (
     reconstruct_attention_weights,
 )
@@ -69,7 +68,7 @@ def test_attention_weight_reconstruction_accuracy(model_name):
         key=attn_result.key,
         attention_mask=attn_result.attention_mask,
         position_embeddings=attn_result.position_embeddings,
-        architecture=extractor.architecture,
+        attn_use_rope=extractor.architecture.attn_use_rope,
     )
 
     torch.testing.assert_close(
@@ -78,7 +77,6 @@ def test_attention_weight_reconstruction_accuracy(model_name):
 
 
 def test_attention_reconstruction_requires_rope_embeddings():
-    architecture = LlamaArchitecture()
     query = torch.zeros(1, 1, 2, 4)
     key = torch.zeros(1, 1, 2, 4)
     with pytest.raises(
@@ -90,5 +88,5 @@ def test_attention_reconstruction_requires_rope_embeddings():
             key=key,
             attention_mask=None,
             position_embeddings=None,
-            architecture=architecture,
+            attn_use_rope=True,
         )

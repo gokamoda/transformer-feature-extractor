@@ -1,13 +1,9 @@
 from dataclasses import dataclass
 from typing import Callable
 
-import torch
 from transformers import (
     AutoConfig,
-    AutoModelForCausalLM,
-    AutoTokenizer,
     PreTrainedModel,
-    TokenizersBackend,
 )
 
 from feature_extractor.logger import init_logging
@@ -77,9 +73,6 @@ ARCHITECTURE_REGISTRY: tuple[ArchitectureRegistryEntry, ...] = (
         factory=GPT2Architecture,
     ),
 )
-
-
-
 
 
 def resolve_model_architecture(model_class_name: str) -> BaseModelArchitecture:

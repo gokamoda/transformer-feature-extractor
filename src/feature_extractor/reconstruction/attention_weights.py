@@ -3,7 +3,6 @@ from typing import Literal
 
 import torch
 
-from feature_extractor.models import BaseModelArchitecture
 from feature_extractor.typing import BATCH, HEAD, HEAD_DIM, SEQUENCE, Tensor
 
 
