@@ -1,5 +1,6 @@
+from unittest.mock import Mock
+
 import pytest
-import torch
 from torch.utils.data import DataLoader
 
 from feature_extractor.configs.schema import FeatureConfig
@@ -43,12 +44,33 @@ def _create_dataset():
     )
 
 
+def test_configure_removes_previous_hooks(monkeypatch):
+    extractor = FeatureExtractor.__new__(FeatureExtractor)
+    managers = [Mock() for _ in range(4)]
+    (
+        extractor.embedding_hook,
+        extractor.layer_hook,
+        extractor.attn_hook,
+        extractor.mlp_hook,
+    ) = managers
+    extractor.model = Mock()
+    monkeypatch.setattr(extractor, "install_hooks", Mock())
+
+    config = FeatureConfig.from_str(["embeddings"])
+    extractor.configure(config)
+
+    for manager in managers:
+        manager.remove_hooks.assert_called_once_with()
+    assert extractor.embedding_hook is None
+    assert extractor.layer_hook is None
+    assert extractor.attn_hook is None
+    assert extractor.mlp_hook is None
+
+
 @pytest.mark.parametrize("model_name", SUPPORTED_MODELS)
 def test_feature_extractor_initialization(model_name):
     config = _create_feature_config()
-    extractor = FeatureExtractor(
-        model_name_or_path=model_name, hook_dtype=torch.float16
-    )
+    extractor = FeatureExtractor(model_name_or_path=model_name)
     extractor.configure(config)
     assert extractor.model is not None
     assert extractor.tokenizer is not None
@@ -57,9 +79,7 @@ def test_feature_extractor_initialization(model_name):
 @pytest.mark.parametrize("model_name", SUPPORTED_MODELS)
 def test_feature_extractor(model_name):
     config = _create_feature_config()
-    extractor = FeatureExtractor(
-        model_name_or_path=model_name, hook_dtype=torch.float16
-    )
+    extractor = FeatureExtractor(model_name_or_path=model_name)
     extractor.configure(config)
 
     assert extractor.model is not None

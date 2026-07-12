@@ -37,23 +37,35 @@ class FeatureExtractor:
     def __init__(
         self,
         model_name_or_path: str,
-        hook_dtype: torch.dtype | None = None,
         early_stop: bool = True,
     ) -> None:
         self.model = load_causal_model(model_name_or_path)
         self.tokenizer = load_tokenizer(model_name_or_path)
         self.architecture = get_model_architecture(self.model)
-        self.hook_dtype = hook_dtype
         self.early_stop = early_stop
 
     def configure(
         self,
         feature_cfg: FeatureConfig,
     ):
+        self.remove_hooks()
         self.feature_cfg = feature_cfg
         self.install_hooks()
         if self.attn_hook is not None and self.attn_hook.need_eager_attn():
             self.model.set_attn_implementation("eager")
+
+    def remove_hooks(self) -> None:
+        """Remove hooks installed by a previous configuration."""
+        for manager_name in (
+            "embedding_hook",
+            "layer_hook",
+            "attn_hook",
+            "mlp_hook",
+        ):
+            manager = getattr(self, manager_name, None)
+            if manager is not None:
+                manager.remove_hooks()
+            setattr(self, manager_name, None)
 
     def install_hooks(self):
         if self.early_stop:

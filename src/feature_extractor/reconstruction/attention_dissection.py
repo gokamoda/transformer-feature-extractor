@@ -97,37 +97,28 @@ def reconstruct_qkv_vectors(
         "Currently only supports linear qkv_proj modules."
     )
 
+    projected = qkv_proj_module(hidden_states)
+
     if module_type == "q_proj":
         head_dim = qkv_proj_module.out_features // num_attention_heads
-        proj_weight_by_head, proj_bias_by_head = _split_q_proj_by_head(
-            q_proj_module=qkv_proj_module,
-            head_dim=head_dim,
-            num_attention_heads=num_attention_heads,
-        )
+        return projected.view(
+            projected.shape[0],
+            projected.shape[1],
+            num_attention_heads,
+            head_dim,
+        ).transpose(1, 2)
     else:
         assert num_kv_heads is not None, (
             "num_kv_heads must be provided for k_proj and v_proj reconstruction"
         )
         head_dim = qkv_proj_module.out_features // num_kv_heads
-        proj_weight_by_head, proj_bias_by_head = _split_kv_proj_by_head(
-            kv_proj_module=qkv_proj_module,
-            head_dim=head_dim,
-            num_attention_heads=num_attention_heads,
-            num_kv_heads=num_kv_heads,
-        )
-
-    value_vectors: Tensor[BATCH, HEAD, SEQUENCE, HEAD_DIM] = torch.einsum(
-        "bid,hde->bihe",
-        hidden_states,  # [BATCH, SEQUENCE, HIDDEN_DIM]
-        proj_weight_by_head,  # [HEAD, HEAD_DIM, HIDDEN_DIM // HEAD]
-    ).contiguous()  # [BATCH, HEAD, SEQUENCE, HEAD_DIM]
-
-    if proj_bias_by_head is not None:
-        value_vectors = value_vectors + proj_bias_by_head
-
-    return value_vectors.transpose(
-        1, 2
-    )  # [BATCH, SEQUENCE, HEAD, HEAD_DIM] -> [BATCH, HEAD, SEQUENCE, HEAD_DIM]
+        projected = projected.view(
+            projected.shape[0],
+            projected.shape[1],
+            num_kv_heads,
+            head_dim,
+        ).transpose(1, 2)
+        return projected.repeat_interleave(num_attention_heads // num_kv_heads, dim=1)
 
 
 def _precompute_ov_weights(

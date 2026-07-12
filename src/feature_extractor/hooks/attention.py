@@ -80,6 +80,15 @@ class QKVHookManager:
         self.value_hooks = []
         self.qkv_combined_hooks = []
 
+    def remove_hooks(self):
+        for hook in (
+            self.query_hooks
+            + self.key_hooks
+            + self.value_hooks
+            + self.qkv_combined_hooks
+        ):
+            hook.remove()
+
     def _resolve_layer_index(self, feature_cfg: FeatureConfig) -> None:
         for feature in feature_cfg.feature_specs:
             if not isinstance(feature, AttentionFeatureSpec):
@@ -394,6 +403,10 @@ class AttentionModuleHookManager:
         self.attention_mask_layer_indices = []
         self.position_embeddings_layer_indices = []
 
+    def remove_hooks(self):
+        for hook in self.attn_module_hooks:
+            hook.remove()
+
     def _resolve_layer_index(self, feature_cfg: FeatureConfig) -> None:
         for feature in feature_cfg.feature_specs:
             if not isinstance(feature, AttentionFeatureSpec):
@@ -665,6 +678,12 @@ class AttentionHookManager:
                 )
 
         return features
+
+    def remove_hooks(self) -> None:
+        if self.qkv_hook_manager is not None:
+            self.qkv_hook_manager.remove_hooks()
+        if self.attn_module_hook_manager is not None:
+            self.attn_module_hook_manager.remove_hooks()
 
     def need_eager_attn(self) -> bool:
         if self.attn_module_hook_manager is None:
