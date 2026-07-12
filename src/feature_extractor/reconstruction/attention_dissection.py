@@ -5,11 +5,83 @@ import torch
 from transformers.pytorch_utils import Conv1D
 
 from feature_extractor.reconstruction.attention_weights import (
+    _apply_rope,
     apply_mask,
     create_causal_mask,
 )
 from feature_extractor.reconstruction.rope import SimplifiedRoPEV1
-from feature_extractor.typing import BATCH, HEAD, HEAD_DIM, HIDDEN_DIM, SEQUENCE, Tensor
+from feature_extractor.typing import (
+    BATCH,
+    HALF_HEAD_DIM,
+    HEAD,
+    HEAD_DIM,
+    HIDDEN_DIM,
+    SEQUENCE,
+    Tensor,
+)
+
+
+def rope_frequency_inner_products(
+    query: Tensor[SEQUENCE, HEAD_DIM],
+    key: Tensor[SEQUENCE, HEAD_DIM],
+    position_embeddings: tuple[torch.Tensor, torch.Tensor],
+    *,
+    scale_by_head_dim: bool = True,
+) -> Tensor[HALF_HEAD_DIM, SEQUENCE, SEQUENCE]:
+    """Compute RoPE QK logits separately for each rotation frequency.
+
+    The returned tensor has shape ``[head_dim // 2, sequence, sequence]``.
+    Summing it over the first dimension reconstructs the full RoPE QK logits.
+    ``position_embeddings`` must contain the cosine and sine tensors used by
+    the model for this sequence and head.
+    """
+    if query.shape != key.shape:
+        raise ValueError(
+            f"query and key must have the same shape, got {query.shape} and {key.shape}"
+        )
+    if query.ndim != 2:
+        raise ValueError(
+            f"query/key must have shape [sequence, head_dim], got {query.shape}"
+        )
+
+    _, head_dim = query.shape
+    if head_dim % 2 != 0:
+        raise ValueError(f"head_dim must be even, got {head_dim}")
+
+    cos, sin = position_embeddings
+    if cos.shape != sin.shape:
+        raise ValueError(
+            f"RoPE cosine and sine shapes must match, got {cos.shape} and {sin.shape}"
+        )
+
+    query_roped, key_roped = _apply_rope(
+        query[None, None], key[None, None], position_embeddings
+    )
+    if query_roped.shape[:2] != (1, 1):
+        raise ValueError(
+            "position_embeddings must describe a single batch and head when "
+            "query/key have shape [sequence, head_dim]"
+        )
+    query_roped = query_roped[0, 0]
+    key_roped = key_roped[0, 0]
+
+    half_head_dim = head_dim // 2
+    logits_by_frequency = (
+        torch.einsum(
+            "if,jf->fij",
+            query_roped[:, :half_head_dim],
+            key_roped[:, :half_head_dim],
+        )
+        + torch.einsum(
+            "if,jf->fij",
+            query_roped[:, half_head_dim:],
+            key_roped[:, half_head_dim:],
+        )
+    )
+
+    if scale_by_head_dim:
+        logits_by_frequency = logits_by_frequency / math.sqrt(head_dim)
+    return logits_by_frequency
 
 
 def _split_o_proj_by_head(

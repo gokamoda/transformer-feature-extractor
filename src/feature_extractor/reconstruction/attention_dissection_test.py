@@ -1,4 +1,5 @@
 import gc
+import math
 
 import pytest
 import torch
@@ -24,9 +25,163 @@ from feature_extractor.reconstruction.attention_dissection import (
     reconstruct_attn_weight_qk_combined_norope,
     reconstruct_attn_weight_qk_combined_with_rope,
     reconstruct_qkv_vectors,
+    rope_frequency_inner_products,
 )
+from feature_extractor.reconstruction.attention_weights import _apply_rope
 from feature_extractor.reconstruction.rope import SimplifiedRoPEV1
 from feature_extractor.typing import HEAD, HIDDEN_DIM, SEQUENCE, Tensor
+
+
+@pytest.mark.parametrize("scale_by_head_dim", [False, True])
+def test_rope_frequency_inner_products_reconstruct_logits(scale_by_head_dim):
+    torch.manual_seed(0)
+    sequence_length = 5
+    head_dim = 8
+    query = torch.randn(sequence_length, head_dim, dtype=torch.float64)
+    key = torch.randn(sequence_length, head_dim, dtype=torch.float64)
+    inv_freq = torch.tensor([1.0, 0.1, 0.01, 0.001], dtype=torch.float64)
+    position_embeddings = SimplifiedRoPEV1(inv_freq).create_position_embeddings(
+        sequence_length
+    )
+
+    logits_by_frequency = rope_frequency_inner_products(
+        query,
+        key,
+        position_embeddings,
+        scale_by_head_dim=scale_by_head_dim,
+    )
+    query_roped, key_roped = _apply_rope(
+        query[None, None], key[None, None], position_embeddings
+    )
+    expected = query_roped[0, 0] @ key_roped[0, 0].T
+    if scale_by_head_dim:
+        expected = expected / math.sqrt(head_dim)
+
+    assert logits_by_frequency.shape == (
+        head_dim // 2,
+        sequence_length,
+        sequence_length,
+    )
+    torch.testing.assert_close(logits_by_frequency.sum(dim=0), expected)
+
+
+@pytest.mark.parametrize(
+    ("query_shape", "key_shape", "error"),
+    [
+        ((3, 8), (4, 8), "same shape"),
+        ((2, 3, 8), (2, 3, 8), "must have shape"),
+        ((3, 7), (3, 7), "must be even"),
+    ],
+)
+def test_rope_frequency_inner_products_validates_inputs(
+    query_shape, key_shape, error
+):
+    query = torch.randn(query_shape)
+    key = torch.randn(key_shape)
+    position_embeddings = (torch.ones(3, 8), torch.zeros(3, 8))
+
+    with pytest.raises(ValueError, match=error):
+        rope_frequency_inner_products(query, key, position_embeddings)
+
+
+def test_rope_frequency_inner_products_zeroed_frequency_is_zero():
+    torch.manual_seed(1)
+    sequence_length = 4
+    head_dim = 8
+    frequency_index = 2
+    query = torch.randn(sequence_length, head_dim)
+    key = torch.randn(sequence_length, head_dim)
+    inv_freq = torch.tensor([1.0, 0.1, 0.01, 0.001])
+    cos, sin = SimplifiedRoPEV1(inv_freq).create_position_embeddings(
+        sequence_length
+    )
+    cos = cos.clone()
+    sin = sin.clone()
+    cos[:, [frequency_index, frequency_index + head_dim // 2]] = 0
+    sin[:, [frequency_index, frequency_index + head_dim // 2]] = 0
+
+    logits_by_frequency = rope_frequency_inner_products(
+        query, key, (cos, sin)
+    )
+
+    torch.testing.assert_close(
+        logits_by_frequency[frequency_index],
+        torch.zeros(sequence_length, sequence_length),
+    )
+
+
+@pytest.mark.parametrize("model_name", SUPPORTED_MODELS)
+def test_rope_frequency_inner_products_reconstruct_model_attention_weights(
+    model_name,
+):
+    extractor = FeatureExtractor(model_name_or_path=model_name)
+    if not extractor.architecture.attn_use_rope:
+        pytest.skip(f"Model {model_name} does not use RoPE")
+    extractor.configure(
+        FeatureConfig.from_str(
+            [
+                "attn.layer_01.query",
+                "attn.layer_01.key",
+                "attn.layer_01.attn_weights",
+                "attn.layer_01.attention_mask",
+                "attn.layer_01.positional_embedding",
+            ]
+        )
+    )
+
+    dataset = _create_dataset()
+    dataloader = DataLoader(
+        dataset,
+        shuffle=False,
+        batch_size=2,
+        collate_fn=create_collator(extractor.tokenizer),
+    )
+    _, hook_result = next(extractor.extract_features(dataloader))
+    assert hook_result.attn is not None
+    attn_result = hook_result.attn[1]
+    assert attn_result is not None
+    assert attn_result.query is not None
+    assert attn_result.key is not None
+    assert attn_result.position_embeddings is not None
+    assert attn_result.attn_weights is not None
+
+    query = attn_result.query
+    key = attn_result.key
+    cos, sin = attn_result.position_embeddings
+    logits = []
+    for batch_index in range(query.shape[0]):
+        batch_logits = []
+        if cos.ndim == 3:
+            batch_position_embeddings = (cos[batch_index], sin[batch_index])
+        else:
+            batch_position_embeddings = (cos, sin)
+        for head_index in range(query.shape[1]):
+            batch_logits.append(
+                rope_frequency_inner_products(
+                    query[batch_index, head_index],
+                    key[batch_index, head_index],
+                    (
+                        batch_position_embeddings[0],
+                        batch_position_embeddings[1],
+                    ),
+                ).sum(dim=0)
+            )
+        logits.append(torch.stack(batch_logits))
+    reconstructed_logits = torch.stack(logits)
+
+    if attn_result.attention_mask is not None:
+        reconstructed_logits = reconstructed_logits + attn_result.attention_mask.to(
+            dtype=reconstructed_logits.dtype,
+            device=reconstructed_logits.device,
+        )
+    reconstructed_attn_weights = torch.softmax(reconstructed_logits, dim=-1)
+
+    torch.testing.assert_close(
+        reconstructed_attn_weights.cpu(),
+        attn_result.attn_weights.cpu(),
+        atol=1e-2,
+        rtol=1e-2,
+    )
 
 
 def _create_feature_config():
