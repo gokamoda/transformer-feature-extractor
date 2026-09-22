@@ -19,15 +19,20 @@ from .get_config import (
     get_num_layers,
 )
 from .get_modules import get_o_proj_module, get_pre_attn_norm_module, get_v_proj_module
+from .gemma3 import Gemma3Architecture
 from .gpt2 import GPT2Architecture
 from .llama import LlamaArchitecture
 from .load import load_causal_model, load_tokenizer
+from .qwen3 import Qwen3Architecture
 
 SUPPORTED_MODELS = [
     "openai-community/gpt2",
     "meta-llama/Llama-2-7b-hf",
     "meta-llama/Llama-3.2-1B",
     "HuggingFaceTB/SmolLM2-135M",
+    "Qwen/Qwen2.5-0.5B",
+    "Qwen/Qwen3-0.6B",
+    "google/gemma-3-1b-pt",
 ]
 
 __all__ = [
@@ -71,6 +76,26 @@ ARCHITECTURE_REGISTRY: tuple[ArchitectureRegistryEntry, ...] = (
     ArchitectureRegistryEntry(
         matcher=lambda class_name: "GPT2LMHeadModel" in class_name,
         factory=GPT2Architecture,
+    ),
+    ArchitectureRegistryEntry(
+        matcher=lambda class_name: "Gemma3ForCausalLM" in class_name,
+        factory=Gemma3Architecture,
+    ),
+    ArchitectureRegistryEntry(
+        matcher=lambda class_name: "Qwen3ForCausalLM" in class_name,
+        factory=Qwen3Architecture,
+    ),
+    # Qwen2.5 and Mistral match BaseModelArchitecture's defaults exactly
+    # (self_attn has only q_proj/k_proj/v_proj/o_proj, mlp has only
+    # gate_proj/up_proj/down_proj/act_fn, a single model.rotary_emb), so they
+    # reuse LlamaArchitecture rather than defining a new class.
+    ArchitectureRegistryEntry(
+        matcher=lambda class_name: "Qwen2ForCausalLM" in class_name,
+        factory=LlamaArchitecture,
+    ),
+    ArchitectureRegistryEntry(
+        matcher=lambda class_name: "MistralForCausalLM" in class_name,
+        factory=LlamaArchitecture,
     ),
 )
 

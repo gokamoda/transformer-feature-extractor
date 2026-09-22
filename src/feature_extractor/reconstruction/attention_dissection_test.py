@@ -10,12 +10,19 @@ from feature_extractor.configs.schema import FeatureConfig
 from feature_extractor.data.dataset import TextDataEntry, TextDataset, create_collator
 from feature_extractor.extractor.extractor import FeatureExtractor
 from feature_extractor.hooks import HookResult
-from feature_extractor.models import SUPPORTED_MODELS, get_model_architecture
+from feature_extractor.models import (
+    SUPPORTED_MODELS,
+    get_model_architecture,
+    load_causal_model,
+)
+from feature_extractor.models.architecture import BaseModelArchitecture
 from feature_extractor.models.get_config import get_num_attn_heads, get_num_kv_heads
 from feature_extractor.models.get_modules import (
     _get_qkv_proj_module,
+    get_k_norm_module,
     get_o_proj_module,
     get_pre_attn_norm_module,
+    get_q_norm_module,
     get_rope_module,
     get_v_proj_module,
 )
@@ -30,6 +37,23 @@ from feature_extractor.reconstruction.attention_dissection import (
 from feature_extractor.reconstruction.attention_weights import _apply_rope
 from feature_extractor.reconstruction.rope import SimplifiedRoPEV1
 from feature_extractor.typing import HEAD, HIDDEN_DIM, SEQUENCE, Tensor
+
+# Above this many parameters, casting to fp32 would double memory usage
+# enough to risk OOM (e.g. Llama-2-7b-hf needs ~28GB in fp32 for weights
+# alone). Those large checkpoints weren't failing in bf16 to begin with, so
+# skip the cast rather than force it universally.
+_MAX_PARAMS_FOR_FP32 = 2_000_000_000
+
+
+def _maybe_float(model: torch.nn.Module) -> torch.nn.Module:
+    """Cast to fp32 for numerical-correctness comparisons (see
+    test_attention_reconstruction_accuracy_ov_combined for the rationale),
+    unless the model is too large to afford it.
+    """
+    num_params = sum(p.numel() for p in model.parameters())
+    if num_params <= _MAX_PARAMS_FOR_FP32:
+        return model.float()
+    return model
 
 
 @pytest.mark.parametrize("scale_by_head_dim", [False, True])
@@ -117,6 +141,9 @@ def test_rope_frequency_inner_products_reconstruct_model_attention_weights(
     extractor = FeatureExtractor(model_name_or_path=model_name)
     if not extractor.architecture.attn_use_rope:
         pytest.skip(f"Model {model_name} does not use RoPE")
+    # See test_attention_reconstruction_accuracy_ov_combined: use fp32 so
+    # this checks the reconstruction formula, not bf16 rounding noise.
+    extractor.model = _maybe_float(extractor.model)
     extractor.configure(
         FeatureConfig.from_str(
             [
@@ -147,6 +174,28 @@ def test_rope_frequency_inner_products_reconstruct_model_attention_weights(
 
     query = attn_result.query
     key = attn_result.key
+
+    # hook_result.attn[*].query/key are captured on the raw q_proj/k_proj
+    # output, before any per-head RMSNorm the architecture may apply (e.g.
+    # Qwen3/Gemma3's q_norm/k_norm). Apply it here so the reconstruction
+    # below matches what the model actually fed into RoPE/attention.
+    if extractor.architecture.attn_q_norm_field is not None:
+        q_norm_module = get_q_norm_module(
+            architecture=extractor.architecture,
+            layer_index=1,
+            model=extractor.model,
+        ).eval()
+        with torch.no_grad():
+            query = q_norm_module(query.to(q_norm_module.weight.device))
+    if extractor.architecture.attn_k_norm_field is not None:
+        k_norm_module = get_k_norm_module(
+            architecture=extractor.architecture,
+            layer_index=1,
+            model=extractor.model,
+        ).eval()
+        with torch.no_grad():
+            key = k_norm_module(key.to(k_norm_module.weight.device))
+
     cos, sin = attn_result.position_embeddings
     logits = []
     for batch_index in range(query.shape[0]):
@@ -207,8 +256,10 @@ def _create_dataset():
     )
 
 
-def _get_result(model_name: str) -> HookResult:
+def _get_result(model_name: str, model: torch.nn.Module | None = None) -> HookResult:
     extractor = FeatureExtractor(model_name_or_path=model_name)
+    if model is not None:
+        extractor.model = model
     config = _create_feature_config()
     extractor.configure(config)
 
@@ -329,7 +380,14 @@ def test_reconstruct_qkv_vectors(
 def test_attention_reconstruction_accuracy_ov_combined(model_name):
     architecture = get_model_architecture(model_name)
     model_config = AutoConfig.from_pretrained(model_name)
-    hook_result = _get_result(model_name)
+    # Most checkpoints in SUPPORTED_MODELS load as bf16 by default. bf16's
+    # ~3 significant digits is fine for a single reconstruction step on most
+    # models, but combined with some models' sharper attention (e.g. Gemma3's
+    # query_pre_attn_scalar scaling), it can push a handful of elements past
+    # a 1e-2 tolerance even though the reconstruction is algebraically
+    # correct. Use fp32 so this test checks the formula, not bf16 rounding.
+    model = _maybe_float(load_causal_model(model_name))
+    hook_result = _get_result(model_name, model=model)
     assert hook_result.attn is not None
     assert hook_result.attn[1] is not None
     assert hook_result.attn[1].attn_weights is not None
@@ -345,7 +403,7 @@ def test_attention_reconstruction_accuracy_ov_combined(model_name):
     ln_module = get_pre_attn_norm_module(
         architecture=architecture,
         layer_index=1,
-        model_name=model_name,
+        model=model,
     ).eval()
     hidden_states = hidden_states.to(ln_module.weight.device)
     with torch.no_grad():
@@ -355,12 +413,12 @@ def test_attention_reconstruction_accuracy_ov_combined(model_name):
     torch.cuda.empty_cache()
 
     o_proj_module = get_o_proj_module(
-        model_name=model_name,
+        model=model,
         architecture=architecture,
         layer_index=1,
     ).eval()
     v_proj_module = get_v_proj_module(
-        model_name=model_name,
+        model=model,
         architecture=architecture,
         layer_index=1,
     ).eval()
@@ -389,7 +447,22 @@ def test_attention_reconstruction_accuracy_ov_combined(model_name):
 def test_attention_weight_reconstruction_accuracy_qk_combined(model_name):
     model_config = AutoConfig.from_pretrained(model_name)
     architecture = get_model_architecture(model_name)
-    hook_result = _get_result(model_name)
+
+    if (
+        architecture.attn_q_norm_field is not None
+        or architecture.attn_k_norm_field is not None
+    ):
+        pytest.skip(
+            f"Model {model_name} applies q_norm/k_norm (RMSNorm) between "
+            "q_proj/k_proj and RoPE; _precompute_qk_weights cannot fold that "
+            "nonlinear step into a static weight matrix. See "
+            "reconstruct_qkv_vectors(norm_module=...) instead."
+        )
+
+    # See test_attention_reconstruction_accuracy_ov_combined: use fp32 so
+    # this checks the reconstruction formula, not bf16 rounding noise.
+    model = _maybe_float(load_causal_model(model_name))
+    hook_result = _get_result(model_name, model=model)
 
     assert hook_result.layers is not None
     assert hook_result.layers[0] is not None
@@ -407,7 +480,7 @@ def test_attention_weight_reconstruction_accuracy_qk_combined(model_name):
         architecture=architecture,
         layer_index=1,
         modules=["q_proj", "k_proj"],
-        model_name=model_name,
+        model=model,
     )
     q_proj_module = qk_modules["q_proj"].eval()
     k_proj_module = qk_modules["k_proj"].eval()
@@ -416,7 +489,7 @@ def test_attention_weight_reconstruction_accuracy_qk_combined(model_name):
     # layer normalize before attn
     ln_module = get_pre_attn_norm_module(
         architecture=architecture,
-        model_name=model_name,
+        model=model,
         layer_index=1,
     ).eval()
     hidden_states = hidden_states.to(ln_module.weight.device)
@@ -428,7 +501,7 @@ def test_attention_weight_reconstruction_accuracy_qk_combined(model_name):
 
     if architecture.attn_use_rope:
         original_rope_module = get_rope_module(
-            model_name=model_name,
+            model=model,
             architecture=architecture,
         )
 
@@ -450,8 +523,7 @@ def test_attention_weight_reconstruction_accuracy_qk_combined(model_name):
         )
 
         qk_weight_combined: Tensor[HEAD, SEQUENCE, SEQUENCE, HIDDEN_DIM, HIDDEN_DIM]
-        qk_bias_combined: Tensor[HEAD, SEQUENCE, SEQUENCE, HIDDEN_DIM] | None
-        qk_weight_combined, qk_bias_combined = _precompute_qk_weights(
+        qk_weight_combined, qk_bias_terms = _precompute_qk_weights(
             q_proj_module=q_proj_module,
             k_proj_module=k_proj_module,
             num_attention_heads=num_attention_heads,
@@ -459,6 +531,7 @@ def test_attention_weight_reconstruction_accuracy_qk_combined(model_name):
             num_kv_heads=num_kv_heads,
             rope_module=simplified_rope_module,
             sequence_length=hidden_states.shape[1],
+            architecture=architecture,
         )
         del q_proj_module
         del k_proj_module
@@ -471,7 +544,7 @@ def test_attention_weight_reconstruction_accuracy_qk_combined(model_name):
             reconstruct_attn_weight_qk_combined_with_rope(
                 hidden_states=hidden_states[:1],
                 qk_weight_combined=qk_weight_combined,
-                qk_bias_combined=qk_bias_combined,
+                qk_bias_terms=qk_bias_terms,
                 head_dim=head_dim,
             )
             .detach()
@@ -507,3 +580,253 @@ def test_attention_weight_reconstruction_accuracy_qk_combined(model_name):
         torch.testing.assert_close(
             attn_weights, hook_result.attn[1].attn_weights, atol=1e-4, rtol=1e-4
         )
+
+
+def test_reconstruct_qkv_vectors_applies_norm_module():
+    """norm_module (e.g. Qwen3/Gemma3's q_norm/k_norm) must be applied over
+    head_dim, before the heads/sequence transpose."""
+    torch.manual_seed(0)
+    hidden_size = 8
+    num_heads = 2
+    head_dim = 4
+    q_proj = torch.nn.Linear(hidden_size, num_heads * head_dim)
+    norm = torch.nn.LayerNorm(head_dim)
+    hidden_states = torch.randn(1, 3, hidden_size)
+
+    with torch.no_grad():
+        reconstructed = reconstruct_qkv_vectors(
+            hidden_states=hidden_states,
+            qkv_proj_module=q_proj,
+            num_attention_heads=num_heads,
+            module_type="q_proj",
+            norm_module=norm,
+        )
+        expected = norm(
+            q_proj(hidden_states).view(1, 3, num_heads, head_dim)
+        ).transpose(1, 2)
+
+    torch.testing.assert_close(reconstructed, expected)
+
+
+def test_precompute_qk_weights_rejects_qk_norm_architectures():
+    """The weight-fusion path can't represent a nonlinear q_norm/k_norm, so it
+    must fail loudly instead of silently returning a wrong result."""
+    architecture = BaseModelArchitecture(attn_q_norm_field="q_norm")
+    q_proj = torch.nn.Linear(8, 8)
+    k_proj = torch.nn.Linear(8, 8)
+
+    with pytest.raises(NotImplementedError, match="attn_q_norm_field"):
+        _precompute_qk_weights(
+            q_proj_module=q_proj,
+            k_proj_module=k_proj,
+            num_attention_heads=2,
+            head_dim=4,
+            num_kv_heads=2,
+            architecture=architecture,
+        )
+
+
+def _causal_softmax(scores: torch.Tensor) -> torch.Tensor:
+    seq_len = scores.shape[-1]
+    mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1).bool()
+    scores = scores.masked_fill(mask, torch.finfo(scores.dtype).min)
+    return torch.softmax(scores, dim=-1)
+
+
+@pytest.mark.parametrize("k_has_bias", [True, False])
+@pytest.mark.parametrize("q_has_bias", [True, False])
+def test_reconstruct_attn_weight_qk_combined_norope_matches_brute_force(
+    q_has_bias, k_has_bias
+):
+    """_precompute_qk_weights's bias terms (key_side/query_side/constant, see
+    QKBiasTerms) must reproduce (W_q x + b_q) . (W_k x + b_k) exactly, for
+    every combination of q_proj/k_proj having a bias or not."""
+    torch.manual_seed(0)
+    batch, seq_len, num_heads, head_dim = 2, 5, 3, 4
+    hidden_size = num_heads * head_dim
+
+    q_proj = torch.nn.Linear(hidden_size, hidden_size, bias=q_has_bias)
+    k_proj = torch.nn.Linear(hidden_size, hidden_size, bias=k_has_bias)
+    hidden_states = torch.randn(batch, seq_len, hidden_size)
+
+    with torch.no_grad():
+        attn_weights = reconstruct_attn_weight_qk_combined_norope(
+            hidden_states=hidden_states,
+            q_proj_module=q_proj,
+            k_proj_module=k_proj,
+            num_attention_heads=num_heads,
+            head_dim=head_dim,
+            num_kv_heads=num_heads,
+        )
+
+        query = (
+            q_proj(hidden_states)
+            .view(batch, seq_len, num_heads, head_dim)
+            .transpose(1, 2)
+        )
+        key = (
+            k_proj(hidden_states)
+            .view(batch, seq_len, num_heads, head_dim)
+            .transpose(1, 2)
+        )
+        expected_scores = torch.einsum("bhid,bhjd->bhij", query, key) / math.sqrt(
+            head_dim
+        )
+        expected = _causal_softmax(expected_scores)
+
+    torch.testing.assert_close(attn_weights, expected, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.parametrize("k_has_bias", [True, False])
+@pytest.mark.parametrize("q_has_bias", [True, False])
+def test_reconstruct_attn_weight_qk_combined_with_rope_matches_brute_force(
+    q_has_bias, k_has_bias
+):
+    """Same as the norope version, but RoPE-rotated: q_proj/k_proj bias is
+    rotated together with the projection before the dot product, so the
+    (i, j)-dependent QKBiasTerms must account for the relative rotation."""
+    torch.manual_seed(0)
+    batch, seq_len, num_heads, head_dim = 2, 5, 3, 4
+    hidden_size = num_heads * head_dim
+
+    q_proj = torch.nn.Linear(hidden_size, hidden_size, bias=q_has_bias)
+    k_proj = torch.nn.Linear(hidden_size, hidden_size, bias=k_has_bias)
+    hidden_states = torch.randn(batch, seq_len, hidden_size)
+
+    inv_freq = 1.0 / (10000 ** (torch.arange(0, head_dim, 2).float() / head_dim))
+    rope_module = SimplifiedRoPEV1(inv_freq=inv_freq)
+    position_embeddings = rope_module.create_position_embeddings(
+        sequence_length=seq_len
+    )
+
+    with torch.no_grad():
+        qk_weight_combined, qk_bias_terms = _precompute_qk_weights(
+            q_proj_module=q_proj,
+            k_proj_module=k_proj,
+            num_attention_heads=num_heads,
+            head_dim=head_dim,
+            num_kv_heads=num_heads,
+            rope_module=rope_module,
+            sequence_length=seq_len,
+        )
+        attn_weights = reconstruct_attn_weight_qk_combined_with_rope(
+            hidden_states=hidden_states,
+            qk_weight_combined=qk_weight_combined,
+            qk_bias_terms=qk_bias_terms,
+            head_dim=head_dim,
+        )
+
+        query = (
+            q_proj(hidden_states)
+            .view(batch, seq_len, num_heads, head_dim)
+            .transpose(1, 2)
+        )
+        key = (
+            k_proj(hidden_states)
+            .view(batch, seq_len, num_heads, head_dim)
+            .transpose(1, 2)
+        )
+        query_roped, key_roped = _apply_rope(query, key, position_embeddings)
+        expected_scores = torch.einsum(
+            "bhid,bhjd->bhij", query_roped, key_roped
+        ) / math.sqrt(head_dim)
+        expected = _causal_softmax(expected_scores)
+
+    torch.testing.assert_close(attn_weights, expected, atol=1e-4, rtol=1e-4)
+
+
+@torch.no_grad()
+def test_gemma3_sandwich_norm_layer_reconstruction():
+    """Gemma3's layer isn't pre-norm-only: input_layernorm -> attn ->
+    post_attention_layernorm -> +residual -> pre_feedforward_layernorm -> mlp
+    -> post_feedforward_layernorm -> +residual. Verify the new architecture
+    fields identify the right modules in the right order by reassembling a
+    full layer from existing reconstruction pieces (+ the real mlp/norm
+    modules) and comparing against the model's actual layer output.
+    """
+    model_name = "google/gemma-3-1b-pt"
+    architecture = get_model_architecture(model_name)
+    assert architecture.post_attn_ln_field is not None
+    assert architecture.pre_mlp_ln_field is not None
+    assert architecture.post_mlp_ln_field is not None
+
+    model_config = AutoConfig.from_pretrained(model_name)
+    extractor = FeatureExtractor(model_name_or_path=model_name)
+    # gemma-3-1b-pt's checkpoint is bfloat16. Reassembling a full layer chains
+    # attn + 4 norms + mlp, and bf16's ~3 significant digits combined with
+    # Gemma3's sharper (query_pre_attn_scalar-scaled) attention is enough to
+    # push a handful of elements past a 1e-2 tolerance, even though the
+    # reconstruction is algebraically correct (verified in fp32, where the
+    # same reconstruction matches to ~1e-5). Run this test in fp32 so it
+    # actually checks the field wiring/ordering, not bf16 rounding noise.
+    extractor.model = extractor.model.float()
+    extractor.configure(
+        FeatureConfig.from_str(
+            [
+                "layers.layer_00.output",
+                "layers.layer_01.output",
+                "attn.layer_01.attn_weights",
+            ]
+        )
+    )
+    dataset = _create_dataset()
+    dataloader = DataLoader(
+        dataset,
+        shuffle=False,
+        batch_size=2,
+        collate_fn=create_collator(extractor.tokenizer),
+    )
+    _, hook_result = next(extractor.extract_features(dataloader))
+
+    assert hook_result.layers is not None
+    layer_input = hook_result.layers[0].output
+    layer_output = hook_result.layers[1].output
+    assert hook_result.attn is not None
+    attn_weights = hook_result.attn[1].attn_weights
+
+    model = extractor.model
+    model_module = getattr(model, architecture.model_field)
+    layer_module = getattr(model_module, architecture.layers_field)[1]
+
+    pre_attn_ln = getattr(layer_module, architecture.pre_attn_ln_field).eval()
+    post_attn_ln = getattr(layer_module, architecture.post_attn_ln_field).eval()
+    pre_mlp_ln = getattr(layer_module, architecture.pre_mlp_ln_field).eval()
+    post_mlp_ln = getattr(layer_module, architecture.post_mlp_ln_field).eval()
+    mlp_module = getattr(layer_module, architecture.mlp_field).eval()
+
+    v_proj_module = get_v_proj_module(
+        architecture=architecture, layer_index=1, model=model
+    ).eval()
+    o_proj_module = get_o_proj_module(
+        architecture=architecture, layer_index=1, model=model
+    ).eval()
+
+    device = pre_attn_ln.weight.device
+    hidden_states = layer_input.to(device)
+    normed_hidden_states = pre_attn_ln(hidden_states)
+
+    attn_output = reconstruct_attn_output_vo_combined(
+        attn_weights=attn_weights.to(device),
+        hidden_states=normed_hidden_states,
+        v_proj_module=v_proj_module,
+        o_proj_module=o_proj_module,
+        num_attention_heads=get_num_attn_heads(
+            model_config=model_config, architecture=architecture
+        ),
+        num_kv_heads=get_num_kv_heads(
+            model_config=model_config, architecture=architecture
+        ),
+    )
+
+    residual = hidden_states
+    hidden_states = post_attn_ln(attn_output)
+    hidden_states = residual + hidden_states
+
+    residual = hidden_states
+    mlp_output = mlp_module(pre_mlp_ln(hidden_states))
+    mlp_output = post_mlp_ln(mlp_output)
+    reconstructed_output = residual + mlp_output
+
+    torch.testing.assert_close(
+        reconstructed_output.cpu(), layer_output, atol=1e-2, rtol=1e-2
+    )

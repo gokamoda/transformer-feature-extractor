@@ -24,6 +24,10 @@ class BaseModelArchitecture:
     config_num_key_value_heads: str = "num_key_value_heads"
     config_hidden_size: str = "hidden_size"
     config_intermediate_size: str = "intermediate_size"
+    # Some configs (Qwen3, Gemma3) declare head_dim explicitly, and it need
+    # not equal hidden_size // num_attention_heads. None means derive it that
+    # way (true for Llama/GPT2, which don't have a separate head_dim field).
+    config_head_dim: str | None = None
     attn_use_rope: bool = True
     attn_qkv_implementation: Literal["conv1d", "independent_linear"] = (
         QKV_IMPLEMENTATION_INDEPENDENT_LINEAR
@@ -46,11 +50,20 @@ class BaseModelArchitecture:
     layers_field: str = "layers"
     ln_f_field: str | None = "ln_f"
 
+    # config attribute holding the per-layer type (e.g. "layer_types", values
+    # like "sliding_attention"/"full_attention"). None means the model uses a
+    # single set of RoPE frequencies for every layer.
+    config_layer_types: str | None = None
+
     # level 2 (inside each layer)
     attn_field: str = "self_attn"
     mlp_field: str = "mlp"
     pre_attn_ln_field: str | None = "input_layernorm"
     pre_mlp_ln_field: str | None = "post_attention_layernorm"
+    # sandwich-norm fields: applied to the attn/mlp output, before it is added
+    # back to the residual stream. None for pre-norm-only architectures.
+    post_attn_ln_field: str | None = None
+    post_mlp_ln_field: str | None = None
 
     # level 3 (inside attention module)
     attn_q_proj_field: str | None = "q_proj"
@@ -60,6 +73,10 @@ class BaseModelArchitecture:
         None  # Only used if attn_qkv_implementation is "conv1d"
     )
     attn_o_proj_field: str = "o_proj"
+    # optional RMSNorm applied to q_proj/k_proj output (per head_dim), before
+    # RoPE is applied. None if the architecture does not normalize Q/K.
+    attn_q_norm_field: str | None = None
+    attn_k_norm_field: str | None = None
 
     # level 3 (inside mlp module)
     mlp_activation_field: str = "act_fn"

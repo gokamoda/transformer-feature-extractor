@@ -9,6 +9,7 @@ from feature_extractor.models import (
 from feature_extractor.models.get_config import (
     get_hidden_size_per_head,
 )
+from feature_extractor.models.get_modules import get_rope_frequencies
 from feature_extractor.reconstruction.attention_weights import _apply_rope
 from feature_extractor.reconstruction.rope import SimplifiedRoPEV1
 from feature_extractor.typing import BATCH, HEAD, HIDDEN_DIM, SEQUENCE, Tensor
@@ -23,6 +24,11 @@ def test_rope_reconstruction(model_name):
     if not architecture.attn_use_rope:
         print(f"Model {model_name} does not use RoPE, skipping test")
         pytest.skip(f"Model {model_name} does not use RoPE, skipping test")
+    elif architecture.config_layer_types is not None:
+        pytest.skip(
+            f"Model {model_name} uses per-layer-type RoPE frequencies; "
+            "covered by test_gemma3_rope_layer_type_frequencies instead."
+        )
     else:
         assert architecture.rope_field is not None
         model_module = getattr(load_causal_model(model_name), architecture.model_field)
@@ -62,6 +68,11 @@ def test_rope_matrix_reconstruction(model_name):
     if not architecture.attn_use_rope:
         print(f"Model {model_name} does not use RoPE, skipping test")
         pytest.skip(f"Model {model_name} does not use RoPE, skipping test")
+    elif architecture.config_layer_types is not None:
+        pytest.skip(
+            f"Model {model_name} uses per-layer-type RoPE frequencies; "
+            "covered by test_gemma3_rope_layer_type_frequencies instead."
+        )
     else:
         assert architecture.rope_field is not None
         model = load_causal_model(model_name)
@@ -108,3 +119,51 @@ def test_rope_matrix_reconstruction(model_name):
         )
 
         torch.testing.assert_close(scores, naive_scores, rtol=1e-5, atol=1e-5)
+
+
+def test_gemma3_rope_layer_type_frequencies():
+    """Gemma3's model.rotary_emb keeps separate inv_freq/attention_scaling
+    buffers per layer type (sliding_attention vs full_attention use different
+    rope_theta). get_rope_frequencies must pick the buffer matching each
+    layer's type, not just read `.inv_freq` (which doesn't even exist on
+    Gemma3RotaryEmbedding).
+    """
+    model_name = "google/gemma-3-1b-pt"
+    architecture = get_model_architecture(model_name)
+    assert architecture.config_layer_types == "layer_types"
+
+    model = load_causal_model(model_name)
+    model_module = getattr(model, architecture.model_field)
+    assert architecture.rope_field is not None
+    original_rope_module = getattr(model_module, architecture.rope_field)
+    layer_types = getattr(model.config, architecture.config_layer_types)
+    assert "sliding_attention" in layer_types
+    assert "full_attention" in layer_types
+
+    sequence_length = 3
+    hidden_states = torch.randn(1, sequence_length, 5)
+    position_ids = torch.arange(sequence_length).unsqueeze(0)
+
+    for layer_index, layer_type in enumerate(layer_types):
+        cos_original, sin_original = original_rope_module(
+            hidden_states, position_ids=position_ids, layer_type=layer_type
+        )
+
+        inv_freq, attention_scaling = get_rope_frequencies(
+            architecture=architecture,
+            model_config=model.config,
+            layer_index=layer_index,
+            rope_module=original_rope_module,
+        )
+        simplified_rope_module = SimplifiedRoPEV1(
+            inv_freq=inv_freq,
+            attention_scaling=attention_scaling,
+        )
+        cos_simplified, sin_simplified = (
+            simplified_rope_module.create_position_embeddings(
+                sequence_length=sequence_length
+            )
+        )
+
+        torch.testing.assert_close(cos_simplified, cos_original[0])
+        torch.testing.assert_close(sin_simplified, sin_original[0])

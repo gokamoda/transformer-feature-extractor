@@ -6,9 +6,26 @@ from feature_extractor.configs.schema import FeatureConfig
 from feature_extractor.data.dataset import TextDataEntry, TextDataset, create_collator
 from feature_extractor.extractor.extractor import FeatureExtractor
 from feature_extractor.models import SUPPORTED_MODELS
+from feature_extractor.models.get_modules import get_k_norm_module, get_q_norm_module
 from feature_extractor.reconstruction.attention_weights import (
     reconstruct_attention_weights,
 )
+
+
+# Above this many parameters, casting to fp32 would double memory usage
+# enough to risk OOM (e.g. Llama-2-7b-hf needs ~28GB in fp32 for weights
+# alone). Those large checkpoints weren't failing in bf16 to begin with, so
+# skip the cast rather than force it universally.
+_MAX_PARAMS_FOR_FP32 = 2_000_000_000
+
+
+def _maybe_float(model: torch.nn.Module) -> torch.nn.Module:
+    """Cast to fp32 for numerical-correctness comparisons, unless the model
+    is too large to afford it."""
+    num_params = sum(p.numel() for p in model.parameters())
+    if num_params <= _MAX_PARAMS_FOR_FP32:
+        return model.float()
+    return model
 
 
 def _create_feature_config():
@@ -40,6 +57,10 @@ def _create_dataset():
 def test_attention_weight_reconstruction_accuracy(model_name):
     config = _create_feature_config()
     extractor = FeatureExtractor(model_name_or_path=model_name)
+    # Most SUPPORTED_MODELS checkpoints load as bf16 by default; use fp32 so
+    # this checks the reconstruction formula, not bf16 rounding noise (see
+    # attention_dissection_test.py's ov_combined test for the full rationale).
+    extractor.model = _maybe_float(extractor.model)
     extractor.configure(config)
 
     dataset = _create_dataset()
@@ -63,9 +84,33 @@ def test_attention_weight_reconstruction_accuracy(model_name):
     else:
         assert attn_result.position_embeddings is None
 
+    query = attn_result.query
+    key = attn_result.key
+
+    # attn_result.query/key are captured on the raw q_proj/k_proj output,
+    # before any per-head RMSNorm the architecture may apply (e.g. Qwen3/
+    # Gemma3's q_norm/k_norm). Apply it here so it matches what the model fed
+    # into RoPE/attention.
+    if extractor.architecture.attn_q_norm_field is not None:
+        q_norm_module = get_q_norm_module(
+            architecture=extractor.architecture,
+            layer_index=1,
+            model=extractor.model,
+        ).eval()
+        with torch.no_grad():
+            query = q_norm_module(query.to(q_norm_module.weight.device))
+    if extractor.architecture.attn_k_norm_field is not None:
+        k_norm_module = get_k_norm_module(
+            architecture=extractor.architecture,
+            layer_index=1,
+            model=extractor.model,
+        ).eval()
+        with torch.no_grad():
+            key = k_norm_module(key.to(k_norm_module.weight.device))
+
     reconstructed = reconstruct_attention_weights(
-        query=attn_result.query,
-        key=attn_result.key,
+        query=query,
+        key=key,
         attention_mask=attn_result.attention_mask,
         position_embeddings=attn_result.position_embeddings,
         attn_use_rope=extractor.architecture.attn_use_rope,

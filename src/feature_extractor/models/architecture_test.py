@@ -29,7 +29,7 @@ def test_supported_models_satisfy_architecture_contracts(model_name):
     model = AutoModelForCausalLM.from_pretrained(model_name)
     architecture = get_model_architecture(model)
 
-    if "meta-llama/Llama" in model_name:
+    if "meta-llama/Llama" in model_name or "Qwen2.5" in model_name:
         assert architecture.__class__.__name__ == "LlamaArchitecture", (
             f"Expected LlamaArchitecture for model {model_name}, got {architecture.__class__.__name__}"
         )
@@ -42,6 +42,22 @@ def test_supported_models_satisfy_architecture_contracts(model_name):
             f"Expected GPT2Architecture for model {model_name}, got {architecture.__class__.__name__}"
         )
         assert architecture.attn_qkv_implementation == QKV_IMPLEMENTATION_CONV1D
+    elif "Qwen3" in model_name:
+        assert architecture.__class__.__name__ == "Qwen3Architecture", (
+            f"Expected Qwen3Architecture for model {model_name}, got {architecture.__class__.__name__}"
+        )
+        assert architecture.attn_q_norm_field == "q_norm"
+        assert architecture.attn_k_norm_field == "k_norm"
+    elif "gemma-3" in model_name:
+        assert architecture.__class__.__name__ == "Gemma3Architecture", (
+            f"Expected Gemma3Architecture for model {model_name}, got {architecture.__class__.__name__}"
+        )
+        assert architecture.attn_q_norm_field == "q_norm"
+        assert architecture.attn_k_norm_field == "k_norm"
+        assert architecture.pre_mlp_ln_field == "pre_feedforward_layernorm"
+        assert architecture.post_attn_ln_field == "post_attention_layernorm"
+        assert architecture.post_mlp_ln_field == "post_feedforward_layernorm"
+        assert architecture.config_layer_types == "layer_types"
 
     model_root = _get_attr_path(model, architecture.model_field)
     layers = _get_attr_path(model_root, architecture.layers_field)
@@ -64,6 +80,27 @@ def test_supported_models_satisfy_architecture_contracts(model_name):
         assert hasattr(attn_module, architecture.attn_o_proj_field), (
             f"Model {model_name} missing attention output projection field "
             f"{architecture.attn_o_proj_field}"
+        )
+        if architecture.attn_q_norm_field is not None:
+            assert hasattr(attn_module, architecture.attn_q_norm_field), (
+                f"Model {model_name} missing q_norm field "
+                f"{architecture.attn_q_norm_field}"
+            )
+        if architecture.attn_k_norm_field is not None:
+            assert hasattr(attn_module, architecture.attn_k_norm_field), (
+                f"Model {model_name} missing k_norm field "
+                f"{architecture.attn_k_norm_field}"
+            )
+
+    if architecture.post_attn_ln_field is not None:
+        assert hasattr(first_layer, architecture.post_attn_ln_field), (
+            f"Model {model_name} missing post_attn_ln field "
+            f"{architecture.post_attn_ln_field}"
+        )
+    if architecture.post_mlp_ln_field is not None:
+        assert hasattr(first_layer, architecture.post_mlp_ln_field), (
+            f"Model {model_name} missing post_mlp_ln field "
+            f"{architecture.post_mlp_ln_field}"
         )
 
     if architecture.supports_mlp_output:

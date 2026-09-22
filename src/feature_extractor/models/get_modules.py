@@ -3,7 +3,7 @@ import gc
 from typing import Literal
 
 import torch
-from transformers import PreTrainedModel
+from transformers import PreTrainedConfig, PreTrainedModel
 
 from feature_extractor.models.architecture import (
     QKV_IMPLEMENTATION_CONV1D,
@@ -48,6 +48,90 @@ def get_pre_attn_norm_module(
         torch.cuda.empty_cache()
 
     return pre_attn_norm_module
+
+
+def _get_attn_norm_module(
+    architecture: BaseModelArchitecture,
+    norm_field: str | None,
+    field_name: str,
+    layer_index: int,
+    model: PreTrainedModel | None = None,
+    model_name: str | None = None,
+    device: str | None = None,
+) -> torch.nn.Module:
+    assert norm_field is not None, (
+        f"Architecture does not specify a {field_name}."
+    )
+
+    if model is None:
+        load_model_inside_function = True
+    else:
+        load_model_inside_function = False
+
+    if load_model_inside_function:
+        assert model_name is not None, "model_name must be provided if model is None"
+        model = load_causal_model(model_name, device=device)
+
+    model_module = getattr(model, architecture.model_field)
+    layer_module = getattr(model_module, architecture.layers_field)[layer_index]
+    attn_module = getattr(layer_module, architecture.attn_field)
+    norm_module = copy.deepcopy(getattr(attn_module, norm_field))
+
+    if load_model_inside_function:
+        del attn_module
+        del layer_module
+        del model_module
+        del model
+        gc.collect()
+        torch.cuda.empty_cache()
+
+    return norm_module
+
+
+def get_q_norm_module(
+    architecture: BaseModelArchitecture,
+    layer_index: int,
+    model: PreTrainedModel | None = None,
+    model_name: str | None = None,
+    device: str | None = None,
+) -> torch.nn.Module:
+    """Return the RMSNorm applied to q_proj output (before RoPE), if any.
+
+    Only defined for architectures that set `attn_q_norm_field` (e.g. Qwen3,
+    Gemma3). Raises if the architecture does not define one.
+    """
+    return _get_attn_norm_module(
+        architecture=architecture,
+        norm_field=architecture.attn_q_norm_field,
+        field_name="attn_q_norm_field",
+        layer_index=layer_index,
+        model=model,
+        model_name=model_name,
+        device=device,
+    )
+
+
+def get_k_norm_module(
+    architecture: BaseModelArchitecture,
+    layer_index: int,
+    model: PreTrainedModel | None = None,
+    model_name: str | None = None,
+    device: str | None = None,
+) -> torch.nn.Module:
+    """Return the RMSNorm applied to k_proj output (before RoPE), if any.
+
+    Only defined for architectures that set `attn_k_norm_field` (e.g. Qwen3,
+    Gemma3). Raises if the architecture does not define one.
+    """
+    return _get_attn_norm_module(
+        architecture=architecture,
+        norm_field=architecture.attn_k_norm_field,
+        field_name="attn_k_norm_field",
+        layer_index=layer_index,
+        model=model,
+        model_name=model_name,
+        device=device,
+    )
 
 
 def get_qkv_proj_module_gpt2(
@@ -324,3 +408,36 @@ def get_rope_module(
         torch.cuda.empty_cache()
 
     return rope_module
+
+
+def get_rope_frequencies(
+    architecture: BaseModelArchitecture,
+    model_config: PreTrainedConfig,
+    layer_index: int,
+    rope_module: torch.nn.Module | None = None,
+    model: PreTrainedModel | None = None,
+    model_name: str | None = None,
+) -> tuple[torch.Tensor, float]:
+    """Return (inv_freq, attention_scaling) for the given layer.
+
+    For most architectures `model.rotary_emb` holds a single global
+    inv_freq/attention_scaling pair (architecture.config_layer_types is None).
+
+    Gemma3 instead keeps separate buffers per layer type (e.g.
+    `sliding_attention_inv_freq` vs `full_attention_inv_freq`, since sliding
+    and full-attention layers use different rope_theta), selected via
+    `model_config.layer_types[layer_index]`.
+    """
+    if rope_module is None:
+        rope_module = get_rope_module(
+            architecture=architecture, model=model, model_name=model_name
+        )
+
+    if architecture.config_layer_types is None:
+        return rope_module.inv_freq, rope_module.attention_scaling
+
+    layer_type = getattr(model_config, architecture.config_layer_types)[layer_index]
+    return (
+        getattr(rope_module, f"{layer_type}_inv_freq"),
+        getattr(rope_module, f"{layer_type}_attention_scaling"),
+    )

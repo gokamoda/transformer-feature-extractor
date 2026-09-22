@@ -216,11 +216,15 @@ def test_attn_hook(model_name):
         ), (
             f"Expected batch size 1 (batch size), got {hook_manager.qkv_hook_manager.query_hooks[0].result.output.shape[0]}"
         )
+        # q_proj's output width is num_attn_heads * head_size, which only
+        # equals hidden_size when head_size == hidden_size // num_attn_heads
+        # (true for Llama/GPT2, not for Qwen3/Gemma3's explicit head_dim).
+        query_size = num_attn_heads * head_size
         assert (
             hook_manager.qkv_hook_manager.query_hooks[0].result.output.shape[2]
-            == hidden_size
+            == query_size
         ), (
-            f"Expected hidden size {hidden_size} (hidden size), got {hook_manager.qkv_hook_manager.query_hooks[0].result.output.shape[2]}"
+            f"Expected query size {query_size} (num_attn_heads * head_size), got {hook_manager.qkv_hook_manager.query_hooks[0].result.output.shape[2]}"
         )
 
         assert isinstance(
