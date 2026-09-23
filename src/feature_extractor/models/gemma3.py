@@ -15,6 +15,11 @@ class Gemma3Architecture(BaseModelArchitecture):
     # Gemma3's head_dim need not equal hidden_size // num_attention_heads.
     config_head_dim: str | None = "head_dim"
 
+    # Gemma3 scales attention scores by 1/sqrt(query_pre_attn_scalar), which
+    # need not equal head_dim (they happen to coincide on some sizes, e.g.
+    # gemma-3-1b-pt, but not necessarily on others).
+    attn_scaling_field: str | None = "query_pre_attn_scalar"
+
     # Gemma3 uses a sandwich norm: input_layernorm -> attn -> post_attention_layernorm
     # -> +residual -> pre_feedforward_layernorm -> mlp -> post_feedforward_layernorm
     # -> +residual. Note that `post_attention_layernorm` here is a *post*-attention

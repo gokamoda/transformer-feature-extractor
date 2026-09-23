@@ -29,6 +29,7 @@ def rope_frequency_inner_products(
     position_embeddings: tuple[torch.Tensor, torch.Tensor],
     *,
     scale_by_head_dim: bool = True,
+    scale: float | None = None,
 ) -> Tensor[HALF_HEAD_DIM, SEQUENCE, SEQUENCE]:
     """Compute RoPE QK logits separately for each rotation frequency.
 
@@ -36,6 +37,12 @@ def rope_frequency_inner_products(
     Summing it over the first dimension reconstructs the full RoPE QK logits.
     ``position_embeddings`` must contain the cosine and sine tensors used by
     the model for this sequence and head.
+
+    `scale`, if given, is the multiplicative factor to scale logits by,
+    overriding `scale_by_head_dim`'s default 1/sqrt(head_dim) -- needed for
+    architectures like Gemma2/Gemma3 that scale by
+    1/sqrt(query_pre_attn_scalar) instead (see
+    `feature_extractor.models.get_attn_scale`).
     """
     if query.shape != key.shape:
         raise ValueError(
@@ -81,7 +88,9 @@ def rope_frequency_inner_products(
         )
     )
 
-    if scale_by_head_dim:
+    if scale is not None:
+        logits_by_frequency = logits_by_frequency * scale
+    elif scale_by_head_dim:
         logits_by_frequency = logits_by_frequency / math.sqrt(head_dim)
     return logits_by_frequency
 
@@ -524,7 +533,12 @@ def reconstruct_attn_weight_qk_combined_norope(
     num_attention_heads: int,
     head_dim: int,
     num_kv_heads: int,
+    scale: float | None = None,
 ):
+    """`scale` is the multiplicative factor attention scores are scaled by.
+    Defaults to 1/sqrt(head_dim); pass `feature_extractor.models.get_attn_scale(...)`
+    for architectures like Gemma2/Gemma3 that scale differently.
+    """
     qk_weight_combined, qk_bias_terms = _precompute_qk_weights(
         q_proj_module=q_proj_module,
         k_proj_module=k_proj_module,
@@ -544,7 +558,9 @@ def reconstruct_attn_weight_qk_combined_norope(
         reconstructed_attn_scores, hidden_states, qk_bias_terms
     )
 
-    reconstructed_attn_scores = reconstructed_attn_scores / math.sqrt(head_dim)
+    if scale is None:
+        scale = 1.0 / math.sqrt(head_dim)
+    reconstructed_attn_scores = reconstructed_attn_scores * scale
 
     mask = create_causal_mask(
         sequence_length=reconstructed_attn_scores.shape[-1],
@@ -565,7 +581,12 @@ def reconstruct_attn_weight_qk_combined_with_rope(
     qk_weight_combined: Tensor[HEAD, SEQUENCE, SEQUENCE, HIDDEN_DIM, HIDDEN_DIM],
     qk_bias_terms: QKBiasTerms,
     head_dim: int,
+    scale: float | None = None,
 ):
+    """`scale` is the multiplicative factor attention scores are scaled by.
+    Defaults to 1/sqrt(head_dim); pass `feature_extractor.models.get_attn_scale(...)`
+    for architectures like Gemma2/Gemma3 that scale differently.
+    """
     # b: batch
     # i: sequence_length (query side)
     # j: sequence_length (key side)
@@ -595,7 +616,9 @@ def reconstruct_attn_weight_qk_combined_with_rope(
         reconstructed_attn_scores, hidden_states, qk_bias_terms
     )
 
-    reconstructed_attn_scores = reconstructed_attn_scores / math.sqrt(head_dim)
+    if scale is None:
+        scale = 1.0 / math.sqrt(head_dim)
+    reconstructed_attn_scores = reconstructed_attn_scores * scale
 
     mask = create_causal_mask(
         sequence_length=reconstructed_attn_scores.shape[-1],

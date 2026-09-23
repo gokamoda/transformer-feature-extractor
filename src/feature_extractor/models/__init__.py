@@ -10,6 +10,7 @@ from feature_extractor.logger import init_logging
 
 from .architecture import BaseModelArchitecture
 from .get_config import (
+    get_attn_scale,
     get_hidden_size,
     get_hidden_size_per_head,
     get_intermediate_size,
@@ -49,6 +50,7 @@ __all__ = [
     "get_hidden_size_per_head",
     "get_kv_hidden_size",
     "get_intermediate_size",
+    "get_attn_scale",
     "get_pre_attn_norm_module",
     "get_v_proj_module",
     "get_o_proj_module",

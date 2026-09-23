@@ -735,6 +735,127 @@ def test_reconstruct_attn_weight_qk_combined_with_rope_matches_brute_force(
     torch.testing.assert_close(attn_weights, expected, atol=1e-4, rtol=1e-4)
 
 
+def test_reconstruct_attn_weight_qk_combined_norope_uses_custom_scale():
+    """Wiring check: a custom `scale` (e.g. from Gemma3's
+    query_pre_attn_scalar) must actually be applied, not silently ignored in
+    favor of the default 1/sqrt(head_dim)."""
+    torch.manual_seed(0)
+    batch, seq_len, num_heads, head_dim = 2, 5, 3, 4
+    hidden_size = num_heads * head_dim
+    custom_scale = 1.0 / 128**0.5  # deliberately != 1/sqrt(head_dim)
+
+    q_proj = torch.nn.Linear(hidden_size, hidden_size)
+    k_proj = torch.nn.Linear(hidden_size, hidden_size)
+    hidden_states = torch.randn(batch, seq_len, hidden_size)
+
+    with torch.no_grad():
+        attn_weights = reconstruct_attn_weight_qk_combined_norope(
+            hidden_states=hidden_states,
+            q_proj_module=q_proj,
+            k_proj_module=k_proj,
+            num_attention_heads=num_heads,
+            head_dim=head_dim,
+            num_kv_heads=num_heads,
+            scale=custom_scale,
+        )
+
+        query = (
+            q_proj(hidden_states)
+            .view(batch, seq_len, num_heads, head_dim)
+            .transpose(1, 2)
+        )
+        key = (
+            k_proj(hidden_states)
+            .view(batch, seq_len, num_heads, head_dim)
+            .transpose(1, 2)
+        )
+        expected_scores = (
+            torch.einsum("bhid,bhjd->bhij", query, key) * custom_scale
+        )
+        expected = _causal_softmax(expected_scores)
+
+    torch.testing.assert_close(attn_weights, expected, atol=1e-5, rtol=1e-5)
+
+
+def test_reconstruct_attn_weight_qk_combined_with_rope_uses_custom_scale():
+    """Same wiring check as the norope version, for the RoPE path."""
+    torch.manual_seed(0)
+    batch, seq_len, num_heads, head_dim = 2, 5, 3, 4
+    hidden_size = num_heads * head_dim
+    custom_scale = 1.0 / 128**0.5
+
+    q_proj = torch.nn.Linear(hidden_size, hidden_size)
+    k_proj = torch.nn.Linear(hidden_size, hidden_size)
+    hidden_states = torch.randn(batch, seq_len, hidden_size)
+
+    inv_freq = 1.0 / (10000 ** (torch.arange(0, head_dim, 2).float() / head_dim))
+    rope_module = SimplifiedRoPEV1(inv_freq=inv_freq)
+    position_embeddings = rope_module.create_position_embeddings(
+        sequence_length=seq_len
+    )
+
+    with torch.no_grad():
+        qk_weight_combined, qk_bias_terms = _precompute_qk_weights(
+            q_proj_module=q_proj,
+            k_proj_module=k_proj,
+            num_attention_heads=num_heads,
+            head_dim=head_dim,
+            num_kv_heads=num_heads,
+            rope_module=rope_module,
+            sequence_length=seq_len,
+        )
+        attn_weights = reconstruct_attn_weight_qk_combined_with_rope(
+            hidden_states=hidden_states,
+            qk_weight_combined=qk_weight_combined,
+            qk_bias_terms=qk_bias_terms,
+            head_dim=head_dim,
+            scale=custom_scale,
+        )
+
+        query = (
+            q_proj(hidden_states)
+            .view(batch, seq_len, num_heads, head_dim)
+            .transpose(1, 2)
+        )
+        key = (
+            k_proj(hidden_states)
+            .view(batch, seq_len, num_heads, head_dim)
+            .transpose(1, 2)
+        )
+        query_roped, key_roped = _apply_rope(query, key, position_embeddings)
+        expected_scores = (
+            torch.einsum("bhid,bhjd->bhij", query_roped, key_roped) * custom_scale
+        )
+        expected = _causal_softmax(expected_scores)
+
+    torch.testing.assert_close(attn_weights, expected, atol=1e-4, rtol=1e-4)
+
+
+def test_rope_frequency_inner_products_uses_custom_scale():
+    """Wiring check: an explicit `scale` must override `scale_by_head_dim`'s
+    default 1/sqrt(head_dim)."""
+    torch.manual_seed(0)
+    sequence_length = 5
+    head_dim = 8
+    custom_scale = 1.0 / 128**0.5
+    query = torch.randn(sequence_length, head_dim)
+    key = torch.randn(sequence_length, head_dim)
+    inv_freq = torch.tensor([1.0, 0.1, 0.01, 0.001])
+    position_embeddings = SimplifiedRoPEV1(inv_freq).create_position_embeddings(
+        sequence_length
+    )
+
+    logits_by_frequency = rope_frequency_inner_products(
+        query, key, position_embeddings, scale=custom_scale
+    )
+    query_roped, key_roped = _apply_rope(
+        query[None, None], key[None, None], position_embeddings
+    )
+    expected = (query_roped[0, 0] @ key_roped[0, 0].T) * custom_scale
+
+    torch.testing.assert_close(logits_by_frequency.sum(dim=0), expected)
+
+
 @torch.no_grad()
 def test_gemma3_sandwich_norm_layer_reconstruction():
     """Gemma3's layer isn't pre-norm-only: input_layernorm -> attn ->

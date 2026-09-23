@@ -95,12 +95,18 @@ def reconstruct_attention_weights(
     position_embeddings: tuple[torch.Tensor, torch.Tensor] | None,
     attn_use_rope: bool,
     before_softmax=False,
+    scale: float | None = None,
 ) -> Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE]:
     """Reconstruct attention weights, matching GPT2 (SDPA) and Llama (RoPE) behavior.
 
     RoPE-based models upcast softmax to float32 in the transformers implementation
     for numerical stability. We mirror that behavior and cast back to the query
     dtype to match the model output.
+
+    `scale` is the multiplicative factor attention scores are scaled by.
+    Defaults to 1/sqrt(head_dim), which is correct for most architectures but
+    wrong for Gemma2/Gemma3 (1/sqrt(query_pre_attn_scalar) instead) -- see
+    `feature_extractor.models.get_attn_scale`.
     """
 
     if attn_use_rope:
@@ -108,8 +114,11 @@ def reconstruct_attention_weights(
             raise ValueError("RoPE-based architectures require position embeddings.")
         query, key = _apply_rope(query, key, position_embeddings)
 
+    if scale is None:
+        scale = 1.0 / math.sqrt(query.shape[-1])
+
     attn_scores = torch.matmul(query, key.transpose(-1, -2))
-    attn_scores = attn_scores / math.sqrt(query.shape[-1])
+    attn_scores = attn_scores * scale
 
     if attention_mask is not None:
         attention_mask = attention_mask.to(attn_scores.dtype).to(attn_scores.device)

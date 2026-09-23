@@ -5,7 +5,10 @@ from torch.utils.data import DataLoader
 from feature_extractor.configs.schema import FeatureConfig
 from feature_extractor.data.dataset import TextDataEntry, TextDataset, create_collator
 from feature_extractor.extractor.extractor import FeatureExtractor
-from feature_extractor.models import SUPPORTED_MODELS
+from feature_extractor.models import SUPPORTED_MODELS, get_attn_scale
+from feature_extractor.models.architecture import BaseModelArchitecture
+from feature_extractor.models.gemma3 import Gemma3Architecture
+from feature_extractor.models.get_config import get_hidden_size_per_head
 from feature_extractor.models.get_modules import get_k_norm_module, get_q_norm_module
 from feature_extractor.reconstruction.attention_weights import (
     reconstruct_attention_weights,
@@ -108,12 +111,20 @@ def test_attention_weight_reconstruction_accuracy(model_name):
         with torch.no_grad():
             key = k_norm_module(key.to(k_norm_module.weight.device))
 
+    scale = get_attn_scale(
+        model_config=extractor.model.config,
+        architecture=extractor.architecture,
+        head_dim=get_hidden_size_per_head(
+            model_config=extractor.model.config, architecture=extractor.architecture
+        ),
+    )
     reconstructed = reconstruct_attention_weights(
         query=query,
         key=key,
         attention_mask=attn_result.attention_mask,
         position_embeddings=attn_result.position_embeddings,
         attn_use_rope=extractor.architecture.attn_use_rope,
+        scale=scale,
     )
 
     torch.testing.assert_close(
@@ -135,3 +146,77 @@ def test_attention_reconstruction_requires_rope_embeddings():
             position_embeddings=None,
             attn_use_rope=True,
         )
+
+
+class _MockGemma3Config:
+    """A minimal stand-in config where query_pre_attn_scalar deliberately
+    differs from head_dim -- unlike gemma-3-1b-pt, where the two happen to
+    coincide (both 256) and would silently mask a head_dim-based scale bug.
+    """
+
+    query_pre_attn_scalar = 128
+    head_dim = 256
+
+
+def test_get_attn_scale_uses_query_pre_attn_scalar_for_gemma3():
+    architecture = Gemma3Architecture()
+    model_config = _MockGemma3Config()
+
+    scale = get_attn_scale(
+        model_config=model_config, architecture=architecture, head_dim=256
+    )
+
+    assert scale == pytest.approx(1 / 128**0.5)
+    assert scale != pytest.approx(1 / 256**0.5)
+
+
+def test_get_attn_scale_defaults_to_head_dim_without_scaling_field():
+    architecture = BaseModelArchitecture()
+    assert architecture.attn_scaling_field is None
+
+    scale = get_attn_scale(
+        model_config=_MockGemma3Config(), architecture=architecture, head_dim=64
+    )
+
+    assert scale == pytest.approx(1 / 64**0.5)
+
+
+def test_reconstruct_attention_weights_uses_query_pre_attn_scalar_scale():
+    """Wiring check: reconstruct_attention_weights must actually use the
+    Gemma3 query_pre_attn_scalar-derived scale, not silently fall back to
+    1/sqrt(head_dim), when both are passed the *same* query/key.
+    """
+    torch.manual_seed(0)
+    batch, heads, seq_len, head_dim = 1, 2, 4, 256
+    query = torch.randn(batch, heads, seq_len, head_dim)
+    key = torch.randn(batch, heads, seq_len, head_dim)
+
+    architecture = Gemma3Architecture()
+    model_config = _MockGemma3Config()
+    gemma3_scale = get_attn_scale(
+        model_config=model_config, architecture=architecture, head_dim=head_dim
+    )
+
+    reconstructed_with_gemma3_scale = reconstruct_attention_weights(
+        query=query,
+        key=key,
+        attention_mask=None,
+        position_embeddings=None,
+        attn_use_rope=False,
+        scale=gemma3_scale,
+    )
+    reconstructed_with_head_dim_scale = reconstruct_attention_weights(
+        query=query,
+        key=key,
+        attention_mask=None,
+        position_embeddings=None,
+        attn_use_rope=False,
+    )
+
+    assert not torch.allclose(
+        reconstructed_with_gemma3_scale, reconstructed_with_head_dim_scale
+    )
+
+    expected_scores = torch.matmul(query, key.transpose(-1, -2)) * gemma3_scale
+    expected = torch.softmax(expected_scores, dim=-1)
+    torch.testing.assert_close(reconstructed_with_gemma3_scale, expected)

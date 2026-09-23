@@ -28,6 +28,11 @@ class BaseModelArchitecture:
     # not equal hidden_size // num_attention_heads. None means derive it that
     # way (true for Llama/GPT2, which don't have a separate head_dim field).
     config_head_dim: str | None = None
+    # Some configs (Gemma2/Gemma3) scale attention scores by
+    # 1/sqrt(query_pre_attn_scalar) instead of 1/sqrt(head_dim); the two
+    # need not be equal. None means derive the scale from head_dim (true for
+    # Llama/GPT2/Qwen, which don't have a separate scaling config value).
+    attn_scaling_field: str | None = None
     attn_use_rope: bool = True
     attn_qkv_implementation: Literal["conv1d", "independent_linear"] = (
         QKV_IMPLEMENTATION_INDEPENDENT_LINEAR
