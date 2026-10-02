@@ -75,17 +75,14 @@ def rope_frequency_inner_products(
     key_roped = key_roped[0, 0]
 
     half_head_dim = head_dim // 2
-    logits_by_frequency = (
-        torch.einsum(
-            "if,jf->fij",
-            query_roped[:, :half_head_dim],
-            key_roped[:, :half_head_dim],
-        )
-        + torch.einsum(
-            "if,jf->fij",
-            query_roped[:, half_head_dim:],
-            key_roped[:, half_head_dim:],
-        )
+    logits_by_frequency = torch.einsum(
+        "if,jf->fij",
+        query_roped[:, :half_head_dim],
+        key_roped[:, :half_head_dim],
+    ) + torch.einsum(
+        "if,jf->fij",
+        query_roped[:, half_head_dim:],
+        key_roped[:, half_head_dim:],
     )
 
     if scale is not None:
@@ -267,7 +264,7 @@ def _precompute_ov_weights(
 
 @dataclass
 class QKBiasTerms:
-    """The additive terms `_precompute_qk_weights` can't fold into
+    """The additive terms `precompute_qk_weights` can't fold into
     `qk_weight_combined`, from expanding score(i,j) = (W_q x_i + b_q) . (W_k x_j + b_k):
 
         score(i,j) = x_i^T W_q^T W_k x_j   [-> qk_weight_combined]
@@ -283,12 +280,16 @@ class QKBiasTerms:
     both) doesn't exist.
     """
 
-    key_side: Tensor[HEAD, HIDDEN_DIM] | Tensor[HEAD, SEQUENCE, SEQUENCE, HIDDEN_DIM] | None
-    query_side: Tensor[HEAD, HIDDEN_DIM] | Tensor[HEAD, SEQUENCE, SEQUENCE, HIDDEN_DIM] | None
+    key_side: (
+        Tensor[HEAD, HIDDEN_DIM] | Tensor[HEAD, SEQUENCE, SEQUENCE, HIDDEN_DIM] | None
+    )
+    query_side: (
+        Tensor[HEAD, HIDDEN_DIM] | Tensor[HEAD, SEQUENCE, SEQUENCE, HIDDEN_DIM] | None
+    )
     constant: Tensor[HEAD] | Tensor[HEAD, SEQUENCE, SEQUENCE] | None
 
 
-def _precompute_qk_weights(
+def precompute_qk_weights(
     q_proj_module: torch.nn.Linear,
     k_proj_module: torch.nn.Linear,
     num_attention_heads: int,
@@ -314,7 +315,7 @@ def _precompute_qk_weights(
         or architecture.attn_k_norm_field is not None
     ):
         raise NotImplementedError(
-            "_precompute_qk_weights folds q_proj/k_proj into a single static "
+            "precompute_qk_weights folds q_proj/k_proj into a single static "
             "weight matrix, which assumes the path between them and the "
             "attention scores is linear. Architectures with attn_q_norm_field/"
             "attn_k_norm_field set apply a per-head RMSNorm (nonlinear) to "
@@ -393,21 +394,25 @@ def _precompute_qk_weights(
                 rope_matrix,
                 k_proj_by_head_weight[h],
             )
-            if key_side is not None:
+            if key_side is not None and q_proj_by_head_bias is not None:
                 key_side[h] = torch.einsum(
                     "e,ijef,kf->ijk",
                     q_proj_by_head_bias[h],
                     rope_matrix,
                     k_proj_by_head_weight[h],
                 )
-            if query_side is not None:
+            if query_side is not None and k_proj_by_head_bias is not None:
                 query_side[h] = torch.einsum(
                     "qe,ijef,f->ijq",
                     q_proj_by_head_weight[h],
                     rope_matrix,
                     k_proj_by_head_bias[h],
                 )
-            if constant is not None:
+            if (
+                constant is not None
+                and q_proj_by_head_bias is not None
+                and k_proj_by_head_bias is not None
+            ):
                 constant[h] = torch.einsum(
                     "e,ijef,f->ij",
                     q_proj_by_head_bias[h],
@@ -443,6 +448,10 @@ def _precompute_qk_weights(
     )
 
 
+# Backward-compatible alias for callers that used the previous private name.
+_precompute_qk_weights = precompute_qk_weights
+
+
 def _add_qk_bias_terms_norope(
     reconstructed_attn_scores: Tensor[BATCH, HEAD, SEQUENCE, SEQUENCE],
     hidden_states: Tensor[BATCH, SEQUENCE, HIDDEN_DIM],
@@ -459,8 +468,8 @@ def _add_qk_bias_terms_norope(
             "hq,biq->bhi", qk_bias_terms.query_side, hidden_states
         ).unsqueeze(3)
     if qk_bias_terms.constant is not None:
-        reconstructed_attn_scores = reconstructed_attn_scores + qk_bias_terms.constant.view(
-            1, -1, 1, 1
+        reconstructed_attn_scores = (
+            reconstructed_attn_scores + qk_bias_terms.constant.view(1, -1, 1, 1)
         )
     return reconstructed_attn_scores
 
@@ -539,7 +548,7 @@ def reconstruct_attn_weight_qk_combined_norope(
     Defaults to 1/sqrt(head_dim); pass `feature_extractor.models.get_attn_scale(...)`
     for architectures like Gemma2/Gemma3 that scale differently.
     """
-    qk_weight_combined, qk_bias_terms = _precompute_qk_weights(
+    qk_weight_combined, qk_bias_terms = precompute_qk_weights(
         q_proj_module=q_proj_module,
         k_proj_module=k_proj_module,
         num_attention_heads=num_attention_heads,

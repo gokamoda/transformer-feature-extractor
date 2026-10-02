@@ -14,7 +14,6 @@ from feature_extractor.reconstruction.attention_weights import (
     reconstruct_attention_weights,
 )
 
-
 # Above this many parameters, casting to fp32 would double memory usage
 # enough to risk OOM (e.g. Llama-2-7b-hf needs ~28GB in fp32 for weights
 # alone). Those large checkpoints weren't failing in bf16 to begin with, so

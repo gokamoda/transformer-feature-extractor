@@ -27,7 +27,9 @@ from feature_extractor.models.get_modules import (
     get_v_proj_module,
 )
 from feature_extractor.reconstruction.attention_dissection import (
-    _precompute_qk_weights,
+    precompute_qk_weights as _precompute_qk_weights,
+)
+from feature_extractor.reconstruction.attention_dissection import (
     reconstruct_attn_output_vo_combined,
     reconstruct_attn_weight_qk_combined_norope,
     reconstruct_attn_weight_qk_combined_with_rope,
@@ -97,9 +99,7 @@ def test_rope_frequency_inner_products_reconstruct_logits(scale_by_head_dim):
         ((3, 7), (3, 7), "must be even"),
     ],
 )
-def test_rope_frequency_inner_products_validates_inputs(
-    query_shape, key_shape, error
-):
+def test_rope_frequency_inner_products_validates_inputs(query_shape, key_shape, error):
     query = torch.randn(query_shape)
     key = torch.randn(key_shape)
     position_embeddings = (torch.ones(3, 8), torch.zeros(3, 8))
@@ -116,17 +116,13 @@ def test_rope_frequency_inner_products_zeroed_frequency_is_zero():
     query = torch.randn(sequence_length, head_dim)
     key = torch.randn(sequence_length, head_dim)
     inv_freq = torch.tensor([1.0, 0.1, 0.01, 0.001])
-    cos, sin = SimplifiedRoPEV1(inv_freq).create_position_embeddings(
-        sequence_length
-    )
+    cos, sin = SimplifiedRoPEV1(inv_freq).create_position_embeddings(sequence_length)
     cos = cos.clone()
     sin = sin.clone()
     cos[:, [frequency_index, frequency_index + head_dim // 2]] = 0
     sin[:, [frequency_index, frequency_index + head_dim // 2]] = 0
 
-    logits_by_frequency = rope_frequency_inner_products(
-        query, key, (cos, sin)
-    )
+    logits_by_frequency = rope_frequency_inner_products(query, key, (cos, sin))
 
     torch.testing.assert_close(
         logits_by_frequency[frequency_index],
@@ -769,9 +765,7 @@ def test_reconstruct_attn_weight_qk_combined_norope_uses_custom_scale():
             .view(batch, seq_len, num_heads, head_dim)
             .transpose(1, 2)
         )
-        expected_scores = (
-            torch.einsum("bhid,bhjd->bhij", query, key) * custom_scale
-        )
+        expected_scores = torch.einsum("bhid,bhjd->bhij", query, key) * custom_scale
         expected = _causal_softmax(expected_scores)
 
     torch.testing.assert_close(attn_weights, expected, atol=1e-5, rtol=1e-5)
@@ -909,6 +903,10 @@ def test_gemma3_sandwich_norm_layer_reconstruction():
     model_module = getattr(model, architecture.model_field)
     layer_module = getattr(model_module, architecture.layers_field)[1]
 
+    assert architecture.pre_attn_ln_field is not None
+    assert architecture.post_attn_ln_field is not None
+    assert architecture.pre_mlp_ln_field is not None
+    assert architecture.post_mlp_ln_field is not None
     pre_attn_ln = getattr(layer_module, architecture.pre_attn_ln_field).eval()
     post_attn_ln = getattr(layer_module, architecture.post_attn_ln_field).eval()
     pre_mlp_ln = getattr(layer_module, architecture.pre_mlp_ln_field).eval()

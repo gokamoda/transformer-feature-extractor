@@ -1,7 +1,11 @@
 import pytest
 from transformers import AutoModelForCausalLM
 
-from feature_extractor.models import SUPPORTED_MODELS, get_model_architecture
+from feature_extractor.models import (
+    SUPPORTED_MODELS,
+    get_model_architecture,
+    resolve_model_architecture,
+)
 from feature_extractor.models.architecture import (
     QKV_IMPLEMENTATION_CONV1D,
     QKV_IMPLEMENTATION_INDEPENDENT_LINEAR,
@@ -13,6 +17,12 @@ def _get_attr_path(obj: object, path: str):
     for part in path.split("."):
         current = getattr(current, part)
     return current
+
+
+def test_resolve_model_architecture_does_not_print(capsys):
+    resolve_model_architecture("GPT2LMHeadModel")
+
+    assert capsys.readouterr().out == ""
 
 
 @pytest.mark.parametrize("model_name", SUPPORTED_MODELS)

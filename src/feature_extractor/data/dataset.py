@@ -21,7 +21,10 @@ class TextDataset(Dataset):
         return self.data[index]
 
 
-def create_collator(tokenizer: TokenizersBackend):
+def create_collator(
+    tokenizer: TokenizersBackend,
+    max_length: int | None = None,
+):
     def collate_fn(batch: list[TextDataEntry]):
         texts = [entry.text for entry in batch]
         indices = [entry.idx for entry in batch]
@@ -31,6 +34,8 @@ def create_collator(tokenizer: TokenizersBackend):
             return_tensors="pt",
             return_attention_mask=True,
             padding=True,
+            truncation=max_length is not None,
+            max_length=max_length,
         )
 
         return {

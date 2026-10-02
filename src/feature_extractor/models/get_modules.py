@@ -14,6 +14,67 @@ from feature_extractor.models.architecture import (
 from .load import load_causal_model
 
 
+def _get_model_level_module(
+    architecture: BaseModelArchitecture,
+    module_field: str | None,
+    field_name: str,
+    model: PreTrainedModel | None = None,
+    model_name: str | None = None,
+    device: str | None = None,
+) -> torch.nn.Module:
+    assert module_field is not None, f"Architecture does not specify a {field_name}."
+
+    load_model_inside_function = model is None
+    if load_model_inside_function:
+        assert model_name is not None, "model_name must be provided if model is None"
+        model = load_causal_model(model_name, device=device)
+
+    model_module = getattr(model, architecture.model_field)
+    module = copy.deepcopy(getattr(model_module, module_field))
+
+    if load_model_inside_function:
+        del model_module
+        del model
+        gc.collect()
+        torch.cuda.empty_cache()
+
+    return module
+
+
+def get_word_embedding_module(
+    architecture: BaseModelArchitecture,
+    model: PreTrainedModel | None = None,
+    model_name: str | None = None,
+    device: str | None = None,
+) -> torch.nn.Module:
+    """Return a detached copy of the model's token embedding module."""
+    return _get_model_level_module(
+        architecture=architecture,
+        module_field=architecture.word_embedding_field,
+        field_name="word_embedding_field",
+        model=model,
+        model_name=model_name,
+        device=device,
+    )
+
+
+def get_absolute_pos_embedding_module(
+    architecture: BaseModelArchitecture,
+    model: PreTrainedModel | None = None,
+    model_name: str | None = None,
+    device: str | None = None,
+) -> torch.nn.Module:
+    """Return a detached copy of the model's absolute position embeddings."""
+    return _get_model_level_module(
+        architecture=architecture,
+        module_field=architecture.absolute_pos_embedding_field,
+        field_name="absolute_pos_embedding_field",
+        model=model,
+        model_name=model_name,
+        device=device,
+    )
+
+
 def get_pre_attn_norm_module(
     architecture: BaseModelArchitecture,
     layer_index: int,
@@ -59,9 +120,7 @@ def _get_attn_norm_module(
     model_name: str | None = None,
     device: str | None = None,
 ) -> torch.nn.Module:
-    assert norm_field is not None, (
-        f"Architecture does not specify a {field_name}."
-    )
+    assert norm_field is not None, f"Architecture does not specify a {field_name}."
 
     if model is None:
         load_model_inside_function = True
@@ -292,8 +351,6 @@ def get_o_proj_module(
     attn_module = getattr(layer_module, architecture.attn_field)
     o_proj_module = copy.deepcopy(getattr(attn_module, architecture.attn_o_proj_field))
 
-    print(torch.cuda.memory_allocated() / 1024**2, "MB allocated")
-    print(torch.cuda.memory_reserved() / 1024**2, "MB reserved")
     if load_model_inside_function:
         del attn_module
         del layer_module
@@ -301,9 +358,6 @@ def get_o_proj_module(
         del model
         gc.collect()
         torch.cuda.empty_cache()
-    print(torch.cuda.memory_allocated() / 1024**2, "MB allocated")
-    print(torch.cuda.memory_reserved() / 1024**2, "MB reserved")
-
     return o_proj_module
 
 
@@ -434,10 +488,18 @@ def get_rope_frequencies(
         )
 
     if architecture.config_layer_types is None:
-        return rope_module.inv_freq, rope_module.attention_scaling
+        inv_freq = rope_module.inv_freq
+        attention_scaling = rope_module.attention_scaling
+    else:
+        layer_type = getattr(model_config, architecture.config_layer_types)[layer_index]
+        inv_freq = getattr(rope_module, f"{layer_type}_inv_freq")
+        attention_scaling = getattr(rope_module, f"{layer_type}_attention_scaling")
 
-    layer_type = getattr(model_config, architecture.config_layer_types)[layer_index]
-    return (
-        getattr(rope_module, f"{layer_type}_inv_freq"),
-        getattr(rope_module, f"{layer_type}_attention_scaling"),
-    )
+    assert isinstance(inv_freq, torch.Tensor)
+    if isinstance(attention_scaling, torch.Tensor):
+        attention_scaling = float(attention_scaling.item())
+    else:
+        assert isinstance(attention_scaling, (int, float))
+        attention_scaling = float(attention_scaling)
+
+    return inv_freq, attention_scaling

@@ -9,6 +9,7 @@ from transformers import (
 from feature_extractor.logger import init_logging
 
 from .architecture import BaseModelArchitecture
+from .gemma3 import Gemma3Architecture
 from .get_config import (
     get_attn_scale,
     get_hidden_size,
@@ -19,8 +20,13 @@ from .get_config import (
     get_num_kv_heads,
     get_num_layers,
 )
-from .get_modules import get_o_proj_module, get_pre_attn_norm_module, get_v_proj_module
-from .gemma3 import Gemma3Architecture
+from .get_modules import (
+    get_absolute_pos_embedding_module,
+    get_o_proj_module,
+    get_pre_attn_norm_module,
+    get_v_proj_module,
+    get_word_embedding_module,
+)
 from .gpt2 import GPT2Architecture
 from .llama import LlamaArchitecture
 from .load import load_causal_model, load_tokenizer
@@ -52,6 +58,8 @@ __all__ = [
     "get_intermediate_size",
     "get_attn_scale",
     "get_pre_attn_norm_module",
+    "get_word_embedding_module",
+    "get_absolute_pos_embedding_module",
     "get_v_proj_module",
     "get_o_proj_module",
 ]
@@ -64,10 +72,6 @@ logger = init_logging(__name__)
 class ArchitectureRegistryEntry:
     matcher: Callable[[str], bool]
     factory: Callable[[], BaseModelArchitecture]
-
-
-def callable_name(fn: Callable[..., object]) -> str:
-    return getattr(fn, "__name__", fn.__class__.__name__)
 
 
 ARCHITECTURE_REGISTRY: tuple[ArchitectureRegistryEntry, ...] = (
@@ -105,9 +109,6 @@ ARCHITECTURE_REGISTRY: tuple[ArchitectureRegistryEntry, ...] = (
 def resolve_model_architecture(model_class_name: str) -> BaseModelArchitecture:
     for entry in ARCHITECTURE_REGISTRY:
         if entry.matcher(model_class_name):
-            print(
-                f"Matched model class {model_class_name} to architecture {callable_name(entry.factory)}"
-            )
             return entry.factory()
 
     logger.warning(
