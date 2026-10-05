@@ -41,12 +41,15 @@ class LayerHook(Hook):
         )
         self.early_stop = early_stop
         self.empty_hook = empty_hook
+        self._early_stop_logged = False
 
     def save_result(self, hook_result: dict):
         if not self.empty_hook:
             self.result = BatchLayerObservationResult(**hook_result)
         if self.early_stop:
-            print("Early stopping triggered by LayerHook.")
+            if not self._early_stop_logged:
+                print("Early stopping triggered by LayerHook.")
+                self._early_stop_logged = True
             raise StopForwardError(
                 "Early stopping forward pass after collecting required layer features."
             )
