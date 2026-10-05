@@ -1,7 +1,7 @@
+import tokenizer_tools
 import torch
 from transformers import (
     AutoModelForCausalLM,
-    AutoTokenizer,
     PreTrainedModel,
     TokenizersBackend,
 )
@@ -35,13 +35,12 @@ def load_causal_model(
 
 
 def load_tokenizer(model_name_or_path: str) -> TokenizersBackend:
-    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, padding_side="left")
+    """The tokenizer of tokenizer-tools (shared with corpus-tools), padded on
+    the left with EOS. tokenizer-tools fixes known problems: e.g. OpenAI's
+    GPT-2 gets <|endoftext|> first, and rinna's Japanese GPT-2 lowercases."""
+    tokenizer = tokenizer_tools.load_tokenizer(model_name_or_path, padding_side="left")
     assert isinstance(tokenizer, TokenizersBackend), (
         f"Expected tokenizer to be a TokenizersBackend, got {type(tokenizer)}"
     )
     tokenizer.pad_token_id = tokenizer.eos_token_id
-
-    if "gpt2" in model_name_or_path:
-        tokenizer.add_bos_token = True
-
     return tokenizer

@@ -14,7 +14,8 @@ dependencies = [
     "tqdm>=4.67.1",
     "multiprocess<=0.70.17",
     "numpy>=2.3.4",
-    "transformers>=4.40.0",
+    "transformers>=5.0",
+    "tokenizer-tools",
     "scikit-learn>=1.4.0",
     "matplotlib>=3.9.0",
     "safetensors>=0.4.0",
@@ -48,6 +49,7 @@ cpu = ["torch==2.7.0"]
 gpu = ["torch==2.7.0"]
 
 [tool.uv.sources]
+tokenizer-tools = { git = "https://github.com/gokamoda/tokenizer-tools.git", rev = "6ad2efe" }
 torch = [
   { index = "pytorch-cpu-mac", extra = "cpu", marker = "platform_system == 'macOS'" },
   { index = "pytorch-cpu", extra = "cpu", marker = "platform_system != 'macOS'" },
