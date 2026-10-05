@@ -15,7 +15,6 @@ dependencies = [
     "multiprocess<=0.70.17",
     "numpy>=2.3.4",
     "transformers>=4.40.0",
-    "datasets>=3.2.0,<4.0.0", # keep v3 for download scripts
     "scikit-learn>=1.4.0",
     "matplotlib>=3.9.0",
     "safetensors>=0.4.0",
