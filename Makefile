@@ -1,7 +1,6 @@
 HAS_GPU := $(shell command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1 && echo 1 || echo 0)
-CONFIG ?= configs/debug.yaml
 
-.PHONY: install ruff envvar extract_features train_probe evaluate_probe run_experiment
+.PHONY: install ruff envvar ty
 
 install:
 	@if [ "$(HAS_GPU)" -eq 1 ]; then \
@@ -23,7 +22,3 @@ envvar:
 
 ty:
 	uv run ty check
-
-greet:
-	uv run greet --config $(CONFIG)
-

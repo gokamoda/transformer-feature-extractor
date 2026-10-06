@@ -1,7 +1,7 @@
 [project]
 name = "feature-extractor"
 version = "0.1.0"
-description = "Add your description here"
+description = "Extract features (hidden states, attention, MLP activations) from Hugging Face causal language models with hooks"
 authors = [
     { name = "gokamoda", email = "gokamoda@gmail.com"}
 ]
@@ -19,12 +19,8 @@ dependencies = [
     "scikit-learn>=1.4.0",
     "matplotlib>=3.9.0",
     "safetensors>=0.4.0",
-    "omegaconf>=2.3.0",
 ]
 
-
-[project.scripts]
-greet = "feature_extractor.cli.greet:main"
 
 [tool.uv]
 dev-dependencies = [
