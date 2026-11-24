@@ -1,0 +1,18 @@
+version: 2
+updates:
+  # uv.lock is not committed; update the PEP 621 dependency requirements.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    versioning-strategy: increase
+    ignore:
+      - dependency-name: torch
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+  - package-ecosystem: pre-commit
+    directory: /
+    schedule:
+      interval: weekly

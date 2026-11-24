@@ -6,7 +6,8 @@ from typing_extensions import Generic, TypeVarTuple
 T = TypeVarTuple("T")
 
 
-class Tensor(Generic[*T], torch.Tensor):
+# ty currently requires Generic here to recognize variadic Tensor annotations.
+class Tensor(Generic[*T], torch.Tensor):  # noqa: UP046
     pass
 
 

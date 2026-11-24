@@ -10,6 +10,9 @@ Hugging Face の causal LM に hook を掛けて、forward の途中の特徴（
 make install   # GPU があれば CUDA 版、なければ CPU 版の PyTorch を入れる
 ```
 
+このリポジトリの開発環境は、`cpu` / `gpu` extra で PyTorch 2.7.0 の取得先を選ぶ（GPU は CUDA 12.6）。
+ライブラリとしての必須依存は `torch>=2.7.0` とし、利用側ではマシンに合わせて PyTorch の版と取得先を指定する。
+
 ほかのリポジトリから使うときは、GitHub から rev を固定して取得する（`pyproject.toml`）:
 
 ```toml
@@ -19,6 +22,25 @@ dependencies = ["feature-extractor"]
 [tool.uv.sources]
 feature-extractor = { git = "https://github.com/gokamoda/transformer-feature-extractor.git", rev = "<commit>" }
 ```
+
+CPU 版を使う利用側プロジェクトの例:
+
+```toml
+[project]
+dependencies = ["feature-extractor", "torch>=2.7.0"]
+
+[tool.uv.sources]
+feature-extractor = { git = "https://github.com/gokamoda/transformer-feature-extractor.git", rev = "<commit>" }
+torch = { index = "pytorch", marker = "sys_platform != 'darwin'" }
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+```
+
+macOS は PyPI から取得する。CUDA 版を使う場合は、対応する取得先（例: `https://download.pytorch.org/whl/cu126`）を指定し、必要なら `torch==<version>` で版も固定する。
+feature-extractor 内の `tool.uv.sources` は利用側には引き継がれない。利用側では `feature-extractor[cpu]` / `[gpu]` を選ぶ必要はない。
 
 ## 使い方
 
@@ -48,6 +70,7 @@ for batch, features in extractor.extract_features(loader):
 
 - tokenizer-tools が既知の問題を直す。例えば OpenAI の GPT-2 は先頭に `<|endoftext|>` を付け、rinna/japanese-gpt2-small は小文字にしてから tokenize する。詳しくは tokenizer-tools の README。
 - そのうえで、バッチにまとめるために左側をパディングし、pad には EOS を使う。
+- Sarashina の SentencePiece tokenizer の読み込みに必要な `sentencepiece` と `protobuf` も依存に含める。
 
 ## 対応モデル
 
@@ -56,7 +79,7 @@ for batch, features in extractor.extract_features(loader):
 | クラス | 動作を確認したモデル（`SUPPORTED_MODELS`、テスト対象） |
 |---|---|
 | `GPT2LMHeadModel` | openai-community/gpt2 |
-| `LlamaForCausalLM` | meta-llama/Llama-2-7b-hf, meta-llama/Llama-3.2-1B, HuggingFaceTB/SmolLM2-135M |
+| `LlamaForCausalLM` | meta-llama/Llama-2-7b-hf, meta-llama/Llama-3.2-1B, HuggingFaceTB/SmolLM2-135M, llm-jp/llm-jp-3-1.8b, sbintuitions/sarashina2.2-1b |
 | `Qwen2ForCausalLM` | Qwen/Qwen2.5-0.5B |
 | `Qwen3ForCausalLM` | Qwen/Qwen3-0.6B |
 | `Gemma3ForCausalLM` | google/gemma-3-1b-pt |

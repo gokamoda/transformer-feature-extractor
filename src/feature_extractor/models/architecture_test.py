@@ -39,7 +39,7 @@ def test_supported_models_satisfy_architecture_contracts(model_name):
     model = AutoModelForCausalLM.from_pretrained(model_name)
     architecture = get_model_architecture(model)
 
-    if "meta-llama/Llama" in model_name or "Qwen2.5" in model_name:
+    if model.config.model_type in {"llama", "qwen2"}:
         assert architecture.__class__.__name__ == "LlamaArchitecture", (
             f"Expected LlamaArchitecture for model {model_name}, got {architecture.__class__.__name__}"
         )

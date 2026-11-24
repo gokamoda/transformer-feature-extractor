@@ -9,29 +9,34 @@ readme = "README.md"
 requires-python = ">=3.12"
 
 dependencies = [
-    "rich>=13.9.4",
-    "pytz>=2025.2",
-    "tqdm>=4.67.1",
-    "multiprocess<=0.70.17",
-    "numpy>=2.3.4",
-    "transformers>=5.0",
+    "torch>=2.7.0",
+    "rich>=14.3.3",
+    "pytz>=2026.1.post1",
+    "tqdm>=4.67.3",
+    "multiprocess>=0.70.19",
+    "numpy>=2.4.3",
+    "transformers>=5.3.0",
     "tokenizer-tools",
-    "scikit-learn>=1.4.0",
-    "matplotlib>=3.9.0",
-    "safetensors>=0.4.0",
+    "sentencepiece>=0.2.3",
+    "protobuf>=7.36.2",
+    "scikit-learn>=1.8.0",
+    "matplotlib>=3.10.8",
+    "safetensors>=0.7.0",
 ]
 
+
+[dependency-groups]
+dev = [
+    "ipython>=9.11.0",
+    "jupyter>=1.1.1",
+    "mypy>=1.19.1",
+    "pre-commit>=4.5.1",
+    "pytest>=9.0.2",
+    "ruff>=0.15.7",
+    "ty>=0.0.24",
+]
 
 [tool.uv]
-dev-dependencies = [
-    "ipython>=8.29.0",
-    "jupyter>=1.1.1",
-    "mypy>=1.11.2",
-    "pre-commit>=3.8.0",
-    "pytest>=8.3.4",
-    "ruff>=0.7.2",
-    "ty>=0.0.23",
-]
 conflicts = [
   [
     { extra = "cpu" },
@@ -41,6 +46,8 @@ conflicts = [
 
 
 [project.optional-dependencies]
+# Backend selectors for development in this repository. Consumers declare
+# their own torch version and index; the library only requires torch>=2.7.0.
 cpu = ["torch==2.7.0"]
 gpu = ["torch==2.7.0"]
 
@@ -74,7 +81,7 @@ testpaths = ["src", "tests"]
 [tool.ruff]
 exclude = [".git", ".mypy_cache", ".ruff_cache", ".venv", "third_party"]
 line-length = 88
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 fixable = ["ALL"]
@@ -110,7 +117,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.pyupgrade]
-keep-runtime-typing = true  # Settings for Python 3.8 compatibility
+keep-runtime-typing = true
 
 [tool.ruff.format]
 quote-style = "double"

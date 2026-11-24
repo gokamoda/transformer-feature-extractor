@@ -37,6 +37,8 @@ SUPPORTED_MODELS = [
     "meta-llama/Llama-2-7b-hf",
     "meta-llama/Llama-3.2-1B",
     "HuggingFaceTB/SmolLM2-135M",
+    "llm-jp/llm-jp-3-1.8b",
+    "sbintuitions/sarashina2.2-1b",
     "Qwen/Qwen2.5-0.5B",
     "Qwen/Qwen3-0.6B",
     "google/gemma-3-1b-pt",
